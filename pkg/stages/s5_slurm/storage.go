@@ -28,33 +28,19 @@ func createStorage(ctx context.Context, kc *kube.Client, profile *config.Profile
 		return fmt.Errorf("ensuring slurm namespace: %w", err)
 	}
 
-	storageType := "hostPath"
-	basePath := "/storage/slurm"
-	storageClass := ""
+	sc := config.ResolveStorage(profile)
 
-	if profile != nil {
-		if profile.Storage.Type != "" {
-			storageType = profile.Storage.Type
-		}
-		if profile.Storage.BasePath != "" {
-			basePath = profile.Storage.BasePath
-		}
-		if profile.Kubernetes.StorageClass != "" {
-			storageClass = profile.Kubernetes.StorageClass
-		}
-	}
-
-	switch storageType {
+	switch sc.Type {
 	case "hostPath":
-		if err := createHostPathStorage(ctx, kc, basePath, printer); err != nil {
+		if err := createHostPathStorage(ctx, kc, sc.BasePath, printer); err != nil {
 			return err
 		}
 	case "pvc":
-		if err := createDynamicStorage(ctx, kc, storageClass, printer); err != nil {
+		if err := createDynamicStorage(ctx, kc, sc.StorageClass, printer); err != nil {
 			return err
 		}
 	default:
-		return fmt.Errorf("unsupported storage type: %s", storageType)
+		return fmt.Errorf("unsupported storage type: %s", sc.Type)
 	}
 
 	return nil

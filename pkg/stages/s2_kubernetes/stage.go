@@ -196,21 +196,18 @@ func (s *KubernetesStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 		}
 	}
 
-	nodeStatus := engine.ComponentStatus{
+	nodeStatusStr := "running"
+	if totalNodes == 0 || readyNodes < totalNodes {
+		nodeStatusStr = "degraded"
+	}
+
+	status.Components = append(status.Components, engine.ComponentStatus{
 		Name:    "kubernetes",
-		Status:  "running",
+		Status:  nodeStatusStr,
 		Version: version.GitVersion,
 		Pods:    totalNodes,
 		Ready:   readyNodes,
-	}
-
-	if totalNodes == 0 {
-		nodeStatus.Status = "degraded"
-	} else if readyNodes < totalNodes {
-		nodeStatus.Status = "degraded"
-	}
-
-	status.Components = append(status.Components, nodeStatus)
+	})
 
 	// Set creation timestamp from the oldest node as a proxy for "applied" time.
 	if totalNodes > 0 {
@@ -223,15 +220,8 @@ func (s *KubernetesStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 		status.Applied = oldest
 	}
 
-	// Overall status.
-	switch {
-	case totalNodes == 0:
-		status.Status = "degraded"
-	case readyNodes == totalNodes:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	// Derive overall status from components.
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
 }

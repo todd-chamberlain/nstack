@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
@@ -68,47 +66,13 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	}
 
 	cs := kc.Clientset()
-
-	// Plan MLflow: check if its deployment exists.
-	mlDep, mlErr := cs.AppsV1().Deployments(mlflowNamespace).Get(ctx, mlflowName, metav1.GetOptions{})
-	if mlErr == nil {
-		mlVersion := kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers)
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "mlflow",
-			Action:    "skip",
-			Version:   mlVersion,
-			Current:   mlVersion,
-			Namespace: mlflowNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "mlflow",
-			Action:    "install",
-			Namespace: mlflowNamespace,
-		})
-	}
-
-	// Plan monitoring: check if the Helm release exists.
 	hc := helm.NewClient(kc.Kubeconfig())
-	monInstalled, monVersion, _ := hc.IsInstalled(monitoringRelease, monitoringNS)
-	if monInstalled {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "monitoring",
-			Action:    "skip",
-			Chart:     prometheusChart,
-			Version:   monitoringVersion,
-			Current:   monVersion,
-			Namespace: monitoringNS,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "monitoring",
-			Action:    "install",
-			Chart:     prometheusChart,
-			Version:   monitoringVersion,
-			Namespace: monitoringNS,
-		})
-	}
+
+	// Plan MLflow and monitoring.
+	plan.Components = append(plan.Components,
+		engine.PlanDeploymentComponent(ctx, cs, "mlflow", "", "", mlflowNamespace, mlflowName),
+		engine.PlanHelmComponent(hc, "monitoring", prometheusChart, monitoringVersion, monitoringNS, monitoringRelease),
+	)
 
 	// Plan soperator dashboards (always present as a component, conditionally applied).
 	plan.Components = append(plan.Components, engine.ComponentPlan{
@@ -204,33 +168,18 @@ func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 }
 
 // Destroy removes all MLOps & Monitoring stage components from the cluster
-// in reverse order: dashboards (no-op), monitoring, then MLflow.
+// in reverse order: monitoring (Helm), then MLflow (raw K8s resources).
 func (s *MLOpsStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
-	totalComponents := 2
+	total := 2
 
-	// 1. Uninstall kube-prometheus-stack.
-	installed, version, err := hc.IsInstalled(monitoringRelease, monitoringNS)
-	if err != nil {
-		return fmt.Errorf("checking monitoring: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(1, totalComponents, "monitoring", version, "destroying")
-		err = hc.Uninstall(monitoringRelease, monitoringNS)
-		printer.ComponentDone("monitoring", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(1, totalComponents, "monitoring", "", "not installed")
-	}
-
-	// 2. Remove MLflow resources.
-	printer.ComponentStart(2, totalComponents, "mlflow", "", "destroying")
-	err = destroyMLflow(ctx, kc, printer)
-	printer.ComponentDone("mlflow", err)
-	if err != nil {
+	// Uninstall kube-prometheus-stack.
+	if err := engine.DestroyHelmRelease(hc, "monitoring", monitoringRelease, monitoringNS, 1, total, printer); err != nil {
 		return err
 	}
 
-	return nil
+	// Remove MLflow resources.
+	printer.ComponentStart(2, total, "mlflow", "", "destroying")
+	err := destroyMLflow(ctx, kc, printer)
+	printer.ComponentDone("mlflow", err)
+	return err
 }

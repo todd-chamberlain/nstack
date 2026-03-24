@@ -91,62 +91,12 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 		})
 	}
 
-	// Plan soperator CRDs + operator.
-	sopInstalled, sopVersion, _ := hc.IsInstalled(soperatorRelease, soperatorNamespace)
-	if sopInstalled {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "soperator",
-			Action:    "skip",
-			Version:   soperatorVersion,
-			Current:   sopVersion,
-			Namespace: soperatorNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "soperator",
-			Action:    "install",
-			Version:   soperatorVersion,
-			Namespace: soperatorNamespace,
-		})
-	}
-
-	// Plan slurm-cluster.
-	clusterInstalled, clusterVersion, _ := hc.IsInstalled(slurmClusterRelease, slurmNamespace)
-	if clusterInstalled {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "slurm-cluster",
-			Action:    "skip",
-			Version:   soperatorVersion,
-			Current:   clusterVersion,
-			Namespace: slurmNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "slurm-cluster",
-			Action:    "install",
-			Version:   soperatorVersion,
-			Namespace: slurmNamespace,
-		})
-	}
-
-	// Plan nodesets.
-	nsInstalled, nsVersion, _ := hc.IsInstalled(nodesetsRelease, slurmNamespace)
-	if nsInstalled {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "nodesets",
-			Action:    "skip",
-			Version:   soperatorVersion,
-			Current:   nsVersion,
-			Namespace: slurmNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "nodesets",
-			Action:    "install",
-			Version:   soperatorVersion,
-			Namespace: slurmNamespace,
-		})
-	}
+	// Plan soperator, slurm-cluster, and nodesets.
+	plan.Components = append(plan.Components,
+		engine.PlanHelmComponent(hc, "soperator", "", soperatorVersion, soperatorNamespace, soperatorRelease),
+		engine.PlanHelmComponent(hc, "slurm-cluster", "", soperatorVersion, slurmNamespace, slurmClusterRelease),
+		engine.PlanHelmComponent(hc, "nodesets", "", soperatorVersion, slurmNamespace, nodesetsRelease),
+	)
 
 	// Plan patches.
 	if profile != nil {
@@ -378,63 +328,26 @@ func checkPodGroupStatus(ctx context.Context, cs kubernetes.Interface, namespace
 
 // Destroy removes all Slurm stage components from the cluster in reverse order.
 func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
-	totalComponents := 4
+	total := 4
 
-	// 1. Uninstall nodesets.
-	installed, version, err := hc.IsInstalled(nodesetsRelease, slurmNamespace)
-	if err != nil {
-		return fmt.Errorf("checking nodesets: %w", err)
+	// Uninstall Helm releases in reverse dependency order.
+	releases := []struct {
+		name, release, namespace string
+	}{
+		{"nodesets", nodesetsRelease, slurmNamespace},
+		{"slurm-cluster", slurmClusterRelease, slurmNamespace},
+		{"soperator", soperatorRelease, soperatorNamespace},
 	}
-	if installed {
-		printer.ComponentStart(1, totalComponents, "nodesets", version, "destroying")
-		err = hc.Uninstall(nodesetsRelease, slurmNamespace)
-		printer.ComponentDone("nodesets", err)
-		if err != nil {
+
+	for i, r := range releases {
+		if err := engine.DestroyHelmRelease(hc, r.name, r.release, r.namespace, i+1, total, printer); err != nil {
 			return err
 		}
-	} else {
-		printer.ComponentSkipped(1, totalComponents, "nodesets", "", "not installed")
 	}
 
-	// 2. Uninstall slurm-cluster.
-	installed, version, err = hc.IsInstalled(slurmClusterRelease, slurmNamespace)
-	if err != nil {
-		return fmt.Errorf("checking slurm-cluster: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(2, totalComponents, "slurm-cluster", version, "destroying")
-		err = hc.Uninstall(slurmClusterRelease, slurmNamespace)
-		printer.ComponentDone("slurm-cluster", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(2, totalComponents, "slurm-cluster", "", "not installed")
-	}
-
-	// 3. Uninstall soperator.
-	installed, version, err = hc.IsInstalled(soperatorRelease, soperatorNamespace)
-	if err != nil {
-		return fmt.Errorf("checking soperator: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(3, totalComponents, "soperator", version, "destroying")
-		err = hc.Uninstall(soperatorRelease, soperatorNamespace)
-		printer.ComponentDone("soperator", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(3, totalComponents, "soperator", "", "not installed")
-	}
-
-	// 4. Remove storage (PVCs + PVs).
-	printer.ComponentStart(4, totalComponents, "storage", "", "destroying")
-	err = destroyStorage(ctx, kc, printer)
+	// Remove storage (PVCs + PVs).
+	printer.ComponentStart(4, total, "storage", "", "destroying")
+	err := destroyStorage(ctx, kc, printer)
 	printer.ComponentDone("storage", err)
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }

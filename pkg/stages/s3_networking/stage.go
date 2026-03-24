@@ -76,53 +76,16 @@ func (s *NetworkingStage) Plan(ctx context.Context, kc *kube.Client, profile *co
 			Namespace: networkOperatorNamespace,
 		})
 	} else {
-		networkOpDep, networkOpErr := cs.AppsV1().Deployments(networkOperatorNamespace).Get(ctx, networkOperatorRelease, metav1.GetOptions{})
-		if networkOpErr == nil {
-			noVersion := kube.ExtractImageVersion(networkOpDep.Spec.Template.Spec.Containers)
-			plan.Components = append(plan.Components, engine.ComponentPlan{
-				Name:      "network-operator",
-				Action:    "skip",
-				Chart:     networkOperatorChart,
-				Version:   networkOperatorVersion,
-				Current:   noVersion,
-				Namespace: networkOperatorNamespace,
-			})
-		} else {
-			plan.Components = append(plan.Components, engine.ComponentPlan{
-				Name:      "network-operator",
-				Action:    "install",
-				Chart:     networkOperatorChart,
-				Version:   networkOperatorVersion,
-				Namespace: networkOperatorNamespace,
-			})
-		}
+		plan.Components = append(plan.Components,
+			engine.PlanDeploymentComponent(ctx, cs, "network-operator", networkOperatorChart, networkOperatorVersion, networkOperatorNamespace, networkOperatorRelease))
 	}
 
 	// Plan DOCA: skip unless DPU nodes are present.
 	// Note: we cannot check site config here (Plan only receives profile),
 	// so we check if DOCA is already deployed. Apply() decides whether to
 	// install DOCA based on the full site config.
-	docaDep, docaErr := cs.AppsV1().Deployments(docaNamespace).Get(ctx, docaRelease, metav1.GetOptions{})
-	if docaErr == nil {
-		docaVersion := kube.ExtractImageVersion(docaDep.Spec.Template.Spec.Containers)
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "doca-platform",
-			Action:    "skip",
-			Chart:     docaChart,
-			Version:   docaVersion,
-			Current:   docaVersion,
-			Namespace: docaNamespace,
-		})
-	} else {
-		// Mark as install candidate; Apply() will decide based on site DPU info.
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "doca-platform",
-			Action:    "install",
-			Chart:     docaChart,
-			Version:   docaVersion,
-			Namespace: docaNamespace,
-		})
-	}
+	plan.Components = append(plan.Components,
+		engine.PlanDeploymentComponent(ctx, cs, "doca-platform", docaChart, docaVersion, docaNamespace, docaRelease))
 
 	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
 
@@ -215,52 +178,18 @@ func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 func (s *NetworkingStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
 	total := 3
 
-	// Uninstall DOCA first.
-	installed, version, err := hc.IsInstalled(docaRelease, docaNamespace)
-	if err != nil {
-		return fmt.Errorf("checking doca: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(1, total, "doca-platform", version, "destroying")
-		err = hc.Uninstall(docaRelease, docaNamespace)
-		printer.ComponentDone("doca-platform", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(1, total, "doca-platform", "", "not installed")
+	releases := []struct {
+		name, release, namespace string
+	}{
+		{"doca-platform", docaRelease, docaNamespace},
+		{"network-operator", networkOperatorRelease, networkOperatorNamespace},
+		{"overlay", "tailscale-operator", "tailscale-system"},
 	}
 
-	// Uninstall Network Operator.
-	installed, version, err = hc.IsInstalled(networkOperatorRelease, networkOperatorNamespace)
-	if err != nil {
-		return fmt.Errorf("checking network-operator: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(2, total, "network-operator", version, "destroying")
-		err = hc.Uninstall(networkOperatorRelease, networkOperatorNamespace)
-		printer.ComponentDone("network-operator", err)
-		if err != nil {
+	for i, r := range releases {
+		if err := engine.DestroyHelmRelease(hc, r.name, r.release, r.namespace, i+1, total, printer); err != nil {
 			return err
 		}
-	} else {
-		printer.ComponentSkipped(2, total, "network-operator", "", "not installed")
-	}
-
-	// Uninstall overlay (Tailscale operator, if installed).
-	installed, version, err = hc.IsInstalled("tailscale-operator", "tailscale-system")
-	if err != nil {
-		return fmt.Errorf("checking tailscale-operator: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(3, total, "overlay", version, "destroying")
-		err = hc.Uninstall("tailscale-operator", "tailscale-system")
-		printer.ComponentDone("overlay", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(3, total, "overlay", "", "not installed")
 	}
 
 	return nil

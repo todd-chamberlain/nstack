@@ -59,26 +59,8 @@ func (s *ProvisionStage) Plan(ctx context.Context, kc *kube.Client, profile *con
 	cs := kc.Clientset()
 
 	// Plan Metal3 Baremetal Operator: check if its deployment exists.
-	dep, depErr := cs.AppsV1().Deployments(metal3Namespace).Get(ctx, metal3Release, metav1.GetOptions{})
-	if depErr == nil {
-		depVersion := kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "baremetal-operator",
-			Action:    "skip",
-			Chart:     metal3Chart,
-			Version:   metal3Version,
-			Current:   depVersion,
-			Namespace: metal3Namespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "baremetal-operator",
-			Action:    "install",
-			Chart:     metal3Chart,
-			Version:   metal3Version,
-			Namespace: metal3Namespace,
-		})
-	}
+	plan.Components = append(plan.Components,
+		engine.PlanDeploymentComponent(ctx, cs, "baremetal-operator", metal3Chart, metal3Version, metal3Namespace, metal3Release))
 
 	// Plan BareMetalHost provisioning component.
 	// At Plan time we cannot inspect the full site config (only profile),
@@ -201,22 +183,7 @@ func (s *ProvisionStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.
 	}
 
 	// Uninstall Metal3 Baremetal Operator.
-	installed, version, err := hc.IsInstalled(metal3Release, metal3Namespace)
-	if err != nil {
-		return fmt.Errorf("checking baremetal-operator: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(2, total, "baremetal-operator", version, "destroying")
-		err = hc.Uninstall(metal3Release, metal3Namespace)
-		printer.ComponentDone("baremetal-operator", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(2, total, "baremetal-operator", "", "not installed")
-	}
-
-	return nil
+	return engine.DestroyHelmRelease(hc, "baremetal-operator", metal3Release, metal3Namespace, 2, total, printer)
 }
 
 // nodesWithBMC filters nodes that have BMC configuration.

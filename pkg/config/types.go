@@ -133,3 +133,32 @@ type ProfileNetworking struct {
 type ProfileImages struct {
 	Registry string `yaml:"registry"`
 }
+
+// StorageConfig holds resolved storage configuration with defaults applied.
+type StorageConfig struct {
+	Type         string // "hostPath" or "pvc"
+	BasePath     string // only for hostPath
+	StorageClass string // only for pvc
+}
+
+// ResolveStorage returns a StorageConfig with defaults applied from the profile.
+// The defaults are: type="hostPath", basePath="/storage/slurm", storageClass="".
+func ResolveStorage(profile *Profile) StorageConfig {
+	sc := StorageConfig{
+		Type:     "hostPath",
+		BasePath: "/storage/slurm",
+	}
+	if profile == nil {
+		return sc
+	}
+	if profile.Storage.Type != "" {
+		sc.Type = profile.Storage.Type
+	}
+	if profile.Storage.BasePath != "" {
+		sc.BasePath = profile.Storage.BasePath
+	}
+	if profile.Kubernetes.StorageClass != "" {
+		sc.StorageClass = profile.Kubernetes.StorageClass
+	}
+	return sc
+}

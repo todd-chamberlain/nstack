@@ -144,28 +144,12 @@ func deployMLflow(ctx context.Context, kc *kube.Client, site *config.Site, profi
 // createMLflowStorage creates the PV and PVC for MLflow data storage.
 func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.Profile, printer *output.Printer) error {
 	cs := kc.Clientset()
-
-	storageType := "hostPath"
-	basePath := "/storage/slurm"
-	storageClass := ""
-
-	if profile != nil {
-		if profile.Storage.Type != "" {
-			storageType = profile.Storage.Type
-		}
-		if profile.Storage.BasePath != "" {
-			basePath = profile.Storage.BasePath
-		}
-		if profile.Kubernetes.StorageClass != "" {
-			storageClass = profile.Kubernetes.StorageClass
-		}
-	}
-
+	sc := config.ResolveStorage(profile)
 	capacity := resource.MustParse("5Gi")
 
-	switch storageType {
+	switch sc.Type {
 	case "hostPath":
-		hostPath := basePath + "/mlflow"
+		hostPath := sc.BasePath + "/mlflow"
 		pathType := corev1.HostPathDirectoryOrCreate
 		pv := &corev1.PersistentVolume{
 			ObjectMeta: metav1.ObjectMeta{
@@ -250,18 +234,18 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 				},
 			},
 		}
-		if storageClass != "" {
-			pvc.Spec.StorageClassName = &storageClass
+		if sc.StorageClass != "" {
+			pvc.Spec.StorageClassName = &sc.StorageClass
 		}
 
 		_, err := cs.CoreV1().PersistentVolumeClaims(mlflowNamespace).Create(ctx, pvc, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("creating mlflow PVC: %w", err)
 		}
-		printer.Debugf("created PVC %s with storageClass %s", mlflowPVCName, storageClass)
+		printer.Debugf("created PVC %s with storageClass %s", mlflowPVCName, sc.StorageClass)
 
 	default:
-		return fmt.Errorf("unsupported storage type: %s", storageType)
+		return fmt.Errorf("unsupported storage type: %s", sc.Type)
 	}
 
 	return nil

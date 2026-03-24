@@ -7,7 +7,9 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 
+	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
+	"github.com/todd-chamberlain/nstack/pkg/output"
 )
 
 // DetermineOverallStatus derives a single status string from a set of
@@ -106,4 +108,71 @@ func ValidateClusterReachable(ctx context.Context, cs kubernetes.Interface) erro
 		return fmt.Errorf("cluster not reachable: %w", err)
 	}
 	return nil
+}
+
+// PlanDeploymentComponent checks whether a Deployment exists and returns a
+// ComponentPlan with action "skip" (if deployed) or "install" (if not).
+// This eliminates the repeated Get-then-branch pattern across stage Plan() methods.
+func PlanDeploymentComponent(ctx context.Context, cs kubernetes.Interface, name, chart, version, namespace, deploymentName string) ComponentPlan {
+	dep, err := cs.AppsV1().Deployments(namespace).Get(ctx, deploymentName, metav1.GetOptions{})
+	if err != nil {
+		return ComponentPlan{
+			Name:      name,
+			Action:    "install",
+			Chart:     chart,
+			Version:   version,
+			Namespace: namespace,
+		}
+	}
+	return ComponentPlan{
+		Name:      name,
+		Action:    "skip",
+		Chart:     chart,
+		Version:   version,
+		Current:   kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers),
+		Namespace: namespace,
+	}
+}
+
+// PlanHelmComponent checks whether a Helm release exists and returns a
+// ComponentPlan with action "skip" (if installed) or "install" (if not).
+// Use this for components managed via Helm where the deployment name differs
+// from the release name (e.g., monitoring stack, soperator).
+func PlanHelmComponent(hc *helm.Client, name, chart, targetVersion, namespace, releaseName string) ComponentPlan {
+	installed, currentVersion, _ := hc.IsInstalled(releaseName, namespace)
+	if installed {
+		return ComponentPlan{
+			Name:      name,
+			Action:    "skip",
+			Chart:     chart,
+			Version:   targetVersion,
+			Current:   currentVersion,
+			Namespace: namespace,
+		}
+	}
+	return ComponentPlan{
+		Name:      name,
+		Action:    "install",
+		Chart:     chart,
+		Version:   targetVersion,
+		Namespace: namespace,
+	}
+}
+
+// DestroyHelmRelease checks whether a Helm release is installed and uninstalls
+// it if so, printing progress via the printer. Returns an error if uninstall
+// fails. The idx and total parameters control the progress numbering.
+func DestroyHelmRelease(hc *helm.Client, name, releaseName, namespace string, idx, total int, printer *output.Printer) error {
+	installed, version, err := hc.IsInstalled(releaseName, namespace)
+	if err != nil {
+		return fmt.Errorf("checking %s: %w", name, err)
+	}
+	if !installed {
+		printer.ComponentSkipped(idx, total, name, "", "not installed")
+		return nil
+	}
+	printer.ComponentStart(idx, total, name, version, "destroying")
+	err = hc.Uninstall(releaseName, namespace)
+	printer.ComponentDone(name, err)
+	return err
 }

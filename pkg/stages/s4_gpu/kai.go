@@ -5,10 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/todd-chamberlain/nstack/pkg/helm"
-	"github.com/todd-chamberlain/nstack/pkg/kube"
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
 
@@ -18,16 +15,6 @@ const (
 	kaiSchedulerRelease   = "kai-scheduler"
 	kaiSchedulerVersion   = "0.3.2"
 )
-
-// isKAISchedulerInstalled checks whether the KAI Scheduler is deployed.
-func isKAISchedulerInstalled(ctx context.Context, kc *kube.Client) (bool, string) {
-	cs := kc.Clientset()
-	dep, err := cs.AppsV1().Deployments(kaiSchedulerNamespace).Get(ctx, "kai-scheduler", metav1.GetOptions{})
-	if err != nil {
-		return false, ""
-	}
-	return true, kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
-}
 
 // installKAIScheduler deploys the NVIDIA KAI Scheduler for GPU-aware
 // multi-tenant workload scheduling.

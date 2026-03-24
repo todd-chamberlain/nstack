@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
@@ -52,72 +50,12 @@ func (s *GPUStage) Plan(ctx context.Context, kc *kube.Client, profile *config.Pr
 
 	cs := kc.Clientset()
 
-	// Plan cert-manager: check if its deployment exists.
-	cmDep, cmErr := cs.AppsV1().Deployments(certManagerNamespace).Get(ctx, certManagerRelease, metav1.GetOptions{})
-	if cmErr == nil {
-		cmVersion := kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers)
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "cert-manager",
-			Action:    "skip",
-			Chart:     certManagerChart,
-			Version:   certManagerVersion,
-			Current:   cmVersion,
-			Namespace: certManagerNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "cert-manager",
-			Action:    "install",
-			Chart:     certManagerChart,
-			Version:   certManagerVersion,
-			Namespace: certManagerNamespace,
-		})
-	}
-
-	// Plan GPU Operator: check if its deployment exists.
-	gpuDep, gpuErr := cs.AppsV1().Deployments(gpuOperatorNamespace).Get(ctx, gpuOperatorRelease, metav1.GetOptions{})
-	if gpuErr == nil {
-		gpuVersion := kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers)
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "gpu-operator",
-			Action:    "skip",
-			Chart:     gpuOperatorChart,
-			Version:   gpuOperatorVersion,
-			Current:   gpuVersion,
-			Namespace: gpuOperatorNamespace,
-		})
-	} else {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "gpu-operator",
-			Action:    "install",
-			Chart:     gpuOperatorChart,
-			Version:   gpuOperatorVersion,
-			Namespace: gpuOperatorNamespace,
-		})
-	}
-
-	// KAI Scheduler (optional — install candidate if already deployed,
-	// or if it will be requested via site overrides at Apply time).
-	kaiInstalled, kaiVersion := isKAISchedulerInstalled(ctx, kc)
-	if kaiInstalled {
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "kai-scheduler",
-			Action:    "skip",
-			Chart:     kaiSchedulerChart,
-			Version:   kaiSchedulerVersion,
-			Current:   kaiVersion,
-			Namespace: kaiSchedulerNamespace,
-		})
-	} else {
-		// Mark as install candidate; Apply() decides based on site overrides.
-		plan.Components = append(plan.Components, engine.ComponentPlan{
-			Name:      "kai-scheduler",
-			Action:    "install",
-			Chart:     kaiSchedulerChart,
-			Version:   kaiSchedulerVersion,
-			Namespace: kaiSchedulerNamespace,
-		})
-	}
+	// Plan cert-manager, GPU Operator, and KAI Scheduler.
+	plan.Components = append(plan.Components,
+		engine.PlanDeploymentComponent(ctx, cs, "cert-manager", certManagerChart, certManagerVersion, certManagerNamespace, certManagerRelease),
+		engine.PlanDeploymentComponent(ctx, cs, "gpu-operator", gpuOperatorChart, gpuOperatorVersion, gpuOperatorNamespace, gpuOperatorRelease),
+		engine.PlanDeploymentComponent(ctx, cs, "kai-scheduler", kaiSchedulerChart, kaiSchedulerVersion, kaiSchedulerNamespace, "kai-scheduler"),
+	)
 
 	// Determine overall stage action.
 	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
@@ -210,52 +148,18 @@ func (s *GPUStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageSt
 func (s *GPUStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
 	total := 3
 
-	// Uninstall KAI Scheduler first (depends on GPU Operator).
-	installed, version, err := hc.IsInstalled(kaiSchedulerRelease, kaiSchedulerNamespace)
-	if err != nil {
-		return fmt.Errorf("checking kai-scheduler: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(1, total, "kai-scheduler", version, "destroying")
-		err = hc.Uninstall(kaiSchedulerRelease, kaiSchedulerNamespace)
-		printer.ComponentDone("kai-scheduler", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(1, total, "kai-scheduler", "", "not installed")
+	releases := []struct {
+		name, release, namespace string
+	}{
+		{"kai-scheduler", kaiSchedulerRelease, kaiSchedulerNamespace},
+		{"gpu-operator", gpuOperatorRelease, gpuOperatorNamespace},
+		{"cert-manager", certManagerRelease, certManagerNamespace},
 	}
 
-	// Uninstall GPU Operator.
-	installed, version, err = hc.IsInstalled(gpuOperatorRelease, gpuOperatorNamespace)
-	if err != nil {
-		return fmt.Errorf("checking gpu-operator: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(2, total, "gpu-operator", version, "destroying")
-		err = hc.Uninstall(gpuOperatorRelease, gpuOperatorNamespace)
-		printer.ComponentDone("gpu-operator", err)
-		if err != nil {
+	for i, r := range releases {
+		if err := engine.DestroyHelmRelease(hc, r.name, r.release, r.namespace, i+1, total, printer); err != nil {
 			return err
 		}
-	} else {
-		printer.ComponentSkipped(2, total, "gpu-operator", "", "not installed")
-	}
-
-	// Uninstall cert-manager.
-	installed, version, err = hc.IsInstalled(certManagerRelease, certManagerNamespace)
-	if err != nil {
-		return fmt.Errorf("checking cert-manager: %w", err)
-	}
-	if installed {
-		printer.ComponentStart(3, total, "cert-manager", version, "destroying")
-		err = hc.Uninstall(certManagerRelease, certManagerNamespace)
-		printer.ComponentDone("cert-manager", err)
-		if err != nil {
-			return err
-		}
-	} else {
-		printer.ComponentSkipped(3, total, "cert-manager", "", "not installed")
 	}
 
 	return nil
