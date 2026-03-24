@@ -306,7 +306,7 @@ func (s *MLOpsStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(1, 1, "monitoring", "", "not installed")
+		printer.ComponentSkipped(1, totalComponents, "monitoring", "", "not installed")
 	}
 
 	// 2. Remove MLflow resources.

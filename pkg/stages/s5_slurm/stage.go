@@ -435,7 +435,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(1, 3, "nodesets", "", "not installed")
+		printer.ComponentSkipped(1, totalComponents, "nodesets", "", "not installed")
 	}
 
 	// 2. Uninstall slurm-cluster.
@@ -451,7 +451,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(2, 3, "slurm-cluster", "", "not installed")
+		printer.ComponentSkipped(2, totalComponents, "slurm-cluster", "", "not installed")
 	}
 
 	// 3. Uninstall soperator.
@@ -467,7 +467,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(3, 3, "soperator", "", "not installed")
+		printer.ComponentSkipped(3, totalComponents, "soperator", "", "not installed")
 	}
 
 	// 4. Remove storage (PVCs + PVs).

@@ -53,18 +53,11 @@ func detectGPUFromNode(node corev1.Node) *DetectedGPU {
 		}
 	}
 
-	// Fallback: check allocatable resources for GPU count.
+	// Fallback: check allocatable resources for GPU count and model.
 	if count == 0 {
 		if qty, ok := node.Status.Allocatable[corev1.ResourceName(resourceNVGPU)]; ok {
 			count = int(qty.Value())
-		}
-	}
-
-	// Also use allocatable to detect GPUs even without labels.
-	if model == "" && count == 0 {
-		if qty, ok := node.Status.Allocatable[corev1.ResourceName(resourceNVGPU)]; ok {
-			count = int(qty.Value())
-			if count > 0 {
+			if count > 0 && model == "" {
 				model = "unknown-nvidia"
 			}
 		}

@@ -42,7 +42,7 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		return fmt.Errorf("loading monitoring values: %w", err)
 	}
 
-	// 5. Install or upgrade the chart.
+	// 3. Install or upgrade the chart.
 	if err := hc.UpgradeOrInstall(
 		monitoringRelease,
 		prometheusChart,
