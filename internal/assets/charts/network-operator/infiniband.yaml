@@ -1,0 +1,12 @@
+# InfiniBand-specific overlay
+ofedDriver:
+  deploy: true
+secondaryNetwork:
+  ipoib:
+    deploy: true  # IP over InfiniBand for management
+ibKubernetes:
+  deploy: true
+  periodicUpdateSeconds: 5
+  pKeyGUIDPoolRangeStart: "02:00:00:00:00:00:00:00"
+  pKeyGUIDPoolRangeEnd: "02:FF:FF:FF:FF:FF:FF:FF"
+  ufmSecret: ""

@@ -1,0 +1,10 @@
+# DOCA Platform Framework values
+# Requires: cert-manager, NFD, maintenance-operator
+dpfOperator:
+  image:
+    repository: nvcr.io/nvidia/doca
+    tag: "2.9.1"
+  imagePullPolicy: IfNotPresent
+provisioning:
+  bfb:
+    enabled: true

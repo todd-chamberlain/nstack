@@ -1,0 +1,8 @@
+# RoCE v2 (RDMA over Converged Ethernet) overlay
+ofedDriver:
+  deploy: true
+secondaryNetwork:
+  ipoib:
+    deploy: false
+ibKubernetes:
+  deploy: false
