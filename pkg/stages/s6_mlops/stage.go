@@ -156,7 +156,7 @@ func (s *MLOpsStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 		switch comp.Action {
 		case "skip":
-			printer.ComponentSkipped(comp.Name, comp.Current, "already installed")
+			printer.ComponentSkipped(idx, total, comp.Name, comp.Current, "already installed")
 			continue
 
 		case "install":
@@ -306,7 +306,7 @@ func (s *MLOpsStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("monitoring", "", "not installed")
+		printer.ComponentSkipped(1, 1, "monitoring", "", "not installed")
 	}
 
 	// 2. Remove MLflow resources.

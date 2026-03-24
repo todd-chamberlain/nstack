@@ -183,7 +183,7 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 				Condition:   "patches.busyboxRetag=true",
 			})
 		}
-		if profile != nil && profile.Patches.OperatorScaleDown {
+		if profile.Patches.OperatorScaleDown {
 			plan.Patches = append(plan.Patches, engine.PatchPlan{
 				Name:        "operator-scale-down",
 				Description: "Scale soperator-manager to 0 replicas",
@@ -241,7 +241,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 		switch comp.Action {
 		case "skip":
-			printer.ComponentSkipped(comp.Name, comp.Current, "already installed")
+			printer.ComponentSkipped(idx, total, comp.Name, comp.Current, "already installed")
 			continue
 
 		case "install":
@@ -435,7 +435,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("nodesets", "", "not installed")
+		printer.ComponentSkipped(1, 3, "nodesets", "", "not installed")
 	}
 
 	// 2. Uninstall slurm-cluster.
@@ -451,7 +451,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("slurm-cluster", "", "not installed")
+		printer.ComponentSkipped(2, 3, "slurm-cluster", "", "not installed")
 	}
 
 	// 3. Uninstall soperator.
@@ -467,7 +467,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("soperator", "", "not installed")
+		printer.ComponentSkipped(3, 3, "soperator", "", "not installed")
 	}
 
 	// 4. Remove storage (PVCs + PVs).

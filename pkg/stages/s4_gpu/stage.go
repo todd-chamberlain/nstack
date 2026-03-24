@@ -154,7 +154,7 @@ func (s *GPUStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, 
 
 		switch comp.Action {
 		case "skip":
-			printer.ComponentSkipped(comp.Name, comp.Current, "already installed")
+			printer.ComponentSkipped(idx, total, comp.Name, comp.Current, "already installed")
 			continue
 
 		case "install":
@@ -275,7 +275,7 @@ func (s *GPUStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("gpu-operator", "", "not installed")
+		printer.ComponentSkipped(1, 2, "gpu-operator", "", "not installed")
 	}
 
 	// Uninstall cert-manager.
@@ -291,7 +291,7 @@ func (s *GPUStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client
 			return err
 		}
 	} else {
-		printer.ComponentSkipped("cert-manager", "", "not installed")
+		printer.ComponentSkipped(2, 2, "cert-manager", "", "not installed")
 	}
 
 	return nil

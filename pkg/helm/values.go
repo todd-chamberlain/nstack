@@ -26,7 +26,11 @@ func LoadChartValues(chartName string, distribution string, overrides map[string
 		overlayPath := fmt.Sprintf("charts/%s/%s.yaml", chartName, distribution)
 		overlayData, readErr := assets.FS.ReadFile(overlayPath)
 		if readErr == nil {
-			profileVals, _ = LoadValuesFile(overlayData)
+			parsed, parseErr := LoadValuesFile(overlayData)
+			if parseErr != nil {
+				return nil, fmt.Errorf("parsing %s %s overlay: %w", chartName, distribution, parseErr)
+			}
+			profileVals = parsed
 		}
 	}
 

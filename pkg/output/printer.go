@@ -126,7 +126,7 @@ func (p *Printer) ComponentDone(name string, err error) {
 
 // ComponentSkipped prints a complete component line for a skipped component.
 // Text mode: "  [1/3] component-name v1.2.3 .............. reason ✓"
-func (p *Printer) ComponentSkipped(name, version, reason string) {
+func (p *Printer) ComponentSkipped(index, total int, name, version, reason string) {
 	if p.format == "json" {
 		p.EmitJSON(Event{
 			Component: name,
@@ -141,7 +141,7 @@ func (p *Printer) ComponentSkipped(name, version, reason string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	label := fmt.Sprintf("[%d/%d] %s %s", p.index, p.total, name, version)
+	label := fmt.Sprintf("[%d/%d] %s %s", index, total, name, version)
 	dots := dotPad(label, 50)
 	fmt.Fprintf(p.out, "  %s%s%s \u2713\n", label, dots, reason)
 }
