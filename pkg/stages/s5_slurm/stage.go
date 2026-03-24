@@ -204,6 +204,14 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 				Condition:   "patches.procMountDefault=true",
 			})
 		}
+		if profile.Patches.PrologToBinTrue {
+			plan.Patches = append(plan.Patches, engine.PatchPlan{
+				Name:        "prolog-to-bin-true",
+				Description: "Set prolog/epilog to /bin/true (applied via Helm values)",
+				Condition:   "patches.prologToBinTrue=true",
+				Applied:     true, // Applied via slurm-cluster/k3s.yaml values, not a runtime patch
+			})
+		}
 	}
 
 	// Determine overall stage action.

@@ -130,11 +130,29 @@ func (c *Client) UpgradeOrInstall(releaseName, chartRef, namespace string, value
 		return err
 	}
 
-	// Check if the release already exists.
+	// Check if the release already exists and its state.
 	histClient := action.NewHistory(cfg)
 	histClient.Max = 1
-	_, err = histClient.Run(releaseName)
-	releaseExists := err == nil
+	releases, histErr := histClient.Run(releaseName)
+	releaseExists := histErr == nil && len(releases) > 0
+
+	// Handle stuck releases (pending-install, pending-upgrade, pending-rollback).
+	if releaseExists {
+		latest := releases[len(releases)-1]
+		if latest.Info != nil && latest.Info.Status.IsPending() {
+			// Release is stuck. Attempt rollback before retrying.
+			rollback := action.NewRollback(cfg)
+			rollback.Force = true
+			rollback.CleanupOnFail = true
+			if rbErr := rollback.Run(releaseName); rbErr != nil {
+				// Rollback failed — try uninstall to clean up completely.
+				uninstall := action.NewUninstall(cfg)
+				uninstall.KeepHistory = false
+				_, _ = uninstall.Run(releaseName)
+				releaseExists = false
+			}
+		}
+	}
 
 	if !releaseExists {
 		return c.installRelease(cfg, releaseName, chartRef, namespace, values, o)

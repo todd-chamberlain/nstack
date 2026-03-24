@@ -2,6 +2,7 @@ package output
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -17,7 +18,7 @@ type Printer struct {
 	quiet   bool
 	verbose bool
 	isTTY   bool
-	out     *os.File
+	out     io.Writer
 
 	// mu guards writes so output is safe from concurrent goroutines.
 	mu sync.Mutex
@@ -35,6 +36,18 @@ func New(format string, quiet, verbose bool) *Printer {
 		verbose: verbose,
 		isTTY:   term.IsTerminal(int(os.Stdout.Fd())),
 		out:     os.Stdout,
+	}
+}
+
+// NewWithWriter creates a Printer that writes to the given io.Writer.
+// This is primarily useful for testing where output capture is needed.
+func NewWithWriter(w io.Writer, format string, quiet, verbose bool) *Printer {
+	return &Printer{
+		format:  format,
+		quiet:   quiet,
+		verbose: verbose,
+		isTTY:   false,
+		out:     w,
 	}
 }
 
