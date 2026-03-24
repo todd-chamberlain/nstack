@@ -4,8 +4,34 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/todd-chamberlain/nstack/internal/assets"
 	"gopkg.in/yaml.v3"
 )
+
+// LoadChartValues loads embedded chart values for a component, merging
+// common values, distribution-specific overlay, and user overrides.
+func LoadChartValues(chartName string, distribution string, overrides map[string]interface{}) (map[string]interface{}, error) {
+	commonPath := fmt.Sprintf("charts/%s/common.yaml", chartName)
+	commonData, err := assets.FS.ReadFile(commonPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading %s common values: %w", chartName, err)
+	}
+	commonVals, err := LoadValuesFile(commonData)
+	if err != nil {
+		return nil, fmt.Errorf("parsing %s common values: %w", chartName, err)
+	}
+
+	var profileVals map[string]interface{}
+	if distribution != "" {
+		overlayPath := fmt.Sprintf("charts/%s/%s.yaml", chartName, distribution)
+		overlayData, readErr := assets.FS.ReadFile(overlayPath)
+		if readErr == nil {
+			profileVals, _ = LoadValuesFile(overlayData)
+		}
+	}
+
+	return MergeValues(commonVals, profileVals, overrides), nil
+}
 
 // MergeValues performs a deep merge of multiple value layers.
 // Later layers override earlier ones. Nested maps merge recursively;

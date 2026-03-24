@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -17,18 +16,6 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/output"
 	"github.com/todd-chamberlain/nstack/pkg/state"
 )
-
-// extractVersion returns the image tag from the first container, or "unknown".
-func extractVersion(containers []corev1.Container) string {
-	if len(containers) == 0 {
-		return "unknown"
-	}
-	img := containers[0].Image
-	if idx := strings.LastIndex(img, ":"); idx >= 0 {
-		return img[idx+1:]
-	}
-	return "unknown"
-}
 
 // SlurmStage implements the Stage interface for deploying the soperator
 // controller, Slurm cluster, NodeSets, and K3s-specific patches.
@@ -55,7 +42,7 @@ func (s *SlurmStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 		}
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "soperator",
-			Version:   extractVersion(sopDep.Spec.Template.Spec.Containers),
+			Version:   kube.ExtractImageVersion(sopDep.Spec.Template.Spec.Containers),
 			Namespace: soperatorNamespace,
 			Status:    opStatus,
 		})
@@ -222,23 +209,7 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	}
 
 	// Determine overall stage action.
-	hasInstall := false
-	allSkip := true
-	for _, c := range plan.Components {
-		if c.Action == "install" {
-			hasInstall = true
-			allSkip = false
-		}
-	}
-	if len(plan.Patches) > 0 {
-		allSkip = false
-		hasInstall = true
-	}
-	if allSkip {
-		plan.Action = "skip"
-	} else if hasInstall {
-		plan.Action = "install"
-	}
+	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
 
 	return plan, nil
 }
@@ -345,7 +316,7 @@ func (s *SlurmStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 	} else {
 		sopStatus.Pods = int(sopDep.Status.Replicas)
 		sopStatus.Ready = int(sopDep.Status.ReadyReplicas)
-		sopStatus.Version = extractVersion(sopDep.Spec.Template.Spec.Containers)
+		sopStatus.Version = kube.ExtractImageVersion(sopDep.Spec.Template.Spec.Containers)
 		if sopDep.Status.AvailableReplicas >= 1 {
 			sopStatus.Status = "running"
 		} else {

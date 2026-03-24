@@ -2,12 +2,12 @@ package detect
 
 import (
 	"context"
-	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/todd-chamberlain/nstack/pkg/kube"
 )
 
 // knownOperator describes an operator we look for in the cluster.
@@ -43,7 +43,7 @@ func detectOperators(ctx context.Context, clientset kubernetes.Interface) ([]Det
 			return nil, err
 		}
 
-		version := extractImageVersion(dep.Spec.Template.Spec.Containers)
+		version := kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
 		status := "degraded"
 		if dep.Status.AvailableReplicas >= 1 {
 			status = "running"
@@ -58,16 +58,4 @@ func detectOperators(ctx context.Context, clientset kubernetes.Interface) ([]Det
 	}
 
 	return results, nil
-}
-
-// extractImageVersion returns the image tag from the first container, or "unknown".
-func extractImageVersion(containers []corev1.Container) string {
-	if len(containers) == 0 {
-		return "unknown"
-	}
-	image := containers[0].Image
-	if idx := strings.LastIndex(image, ":"); idx >= 0 {
-		return image[idx+1:]
-	}
-	return "unknown"
 }

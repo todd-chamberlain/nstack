@@ -3,10 +3,8 @@ package s6_mlops
 import (
 	"context"
 	"fmt"
-	"strings"
 
 	appsv1 "k8s.io/api/apps/v1"
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -16,18 +14,6 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/output"
 	"github.com/todd-chamberlain/nstack/pkg/state"
 )
-
-// extractVersion returns the image tag from the first container, or "unknown".
-func extractVersion(containers []corev1.Container) string {
-	if len(containers) == 0 {
-		return "unknown"
-	}
-	img := containers[0].Image
-	if idx := strings.LastIndex(img, ":"); idx >= 0 {
-		return img[idx+1:]
-	}
-	return "unknown"
-}
 
 // MLOpsStage implements the Stage interface for deploying MLflow and
 // the kube-prometheus-stack monitoring suite.
@@ -54,7 +40,7 @@ func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 		}
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "mlflow",
-			Version:   extractVersion(mlDep.Spec.Template.Spec.Containers),
+			Version:   kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers),
 			Namespace: mlflowNamespace,
 			Status:    opStatus,
 		})
@@ -109,7 +95,7 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	// Plan MLflow: check if its deployment exists.
 	mlDep, mlErr := cs.AppsV1().Deployments(mlflowNamespace).Get(ctx, mlflowName, metav1.GetOptions{})
 	if mlErr == nil {
-		mlVersion := extractVersion(mlDep.Spec.Template.Spec.Containers)
+		mlVersion := kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers)
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "mlflow",
 			Action:    "skip",
@@ -155,19 +141,7 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	})
 
 	// Determine overall stage action.
-	hasInstall := false
-	allSkip := true
-	for _, c := range plan.Components {
-		if c.Action == "install" {
-			hasInstall = true
-			allSkip = false
-		}
-	}
-	if allSkip {
-		plan.Action = "skip"
-	} else if hasInstall {
-		plan.Action = "install"
-	}
+	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
 
 	return plan, nil
 }
@@ -230,7 +204,7 @@ func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 	} else {
 		mlStatus.Pods = int(mlDep.Status.Replicas)
 		mlStatus.Ready = int(mlDep.Status.ReadyReplicas)
-		mlStatus.Version = extractVersion(mlDep.Spec.Template.Spec.Containers)
+		mlStatus.Version = kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers)
 		if mlDep.Status.AvailableReplicas >= 1 {
 			mlStatus.Status = "running"
 		} else {
@@ -264,7 +238,7 @@ func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 		if err == nil {
 			compStatus.Pods = int(dep.Status.Replicas)
 			compStatus.Ready = int(dep.Status.ReadyReplicas)
-			compStatus.Version = extractVersion(dep.Spec.Template.Spec.Containers)
+			compStatus.Version = kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
 			if dep.Status.AvailableReplicas >= 1 {
 				compStatus.Status = "running"
 			} else {
@@ -276,7 +250,7 @@ func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 			if ssErr == nil {
 				compStatus.Pods = int(ss.Status.Replicas)
 				compStatus.Ready = int(ss.Status.ReadyReplicas)
-				compStatus.Version = extractVersion(ss.Spec.Template.Spec.Containers)
+				compStatus.Version = kube.ExtractImageVersion(ss.Spec.Template.Spec.Containers)
 				if ss.Status.ReadyReplicas >= 1 {
 					compStatus.Status = "running"
 				} else {

@@ -86,3 +86,34 @@ type ComponentStatus struct {
 	Ready     int    `json:"ready"`
 	Namespace string `json:"namespace"`
 }
+
+// DeterminePlanAction derives the overall action for a stage plan
+// based on its component actions and patches.
+func DeterminePlanAction(components []ComponentPlan, patches []PatchPlan) string {
+	hasInstall := false
+	allSkip := true
+	for _, c := range components {
+		if c.Action == "install" || c.Action == "upgrade" {
+			hasInstall = true
+			allSkip = false
+		} else if c.Action != "skip" && c.Action != "no-change" {
+			allSkip = false
+		}
+	}
+	if len(patches) > 0 {
+		for _, p := range patches {
+			if !p.Applied {
+				hasInstall = true
+				allSkip = false
+				break
+			}
+		}
+	}
+	if allSkip && !hasInstall {
+		return "skip"
+	}
+	if hasInstall {
+		return "install"
+	}
+	return "no-change"
+}

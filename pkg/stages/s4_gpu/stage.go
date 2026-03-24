@@ -3,9 +3,7 @@ package s4_gpu
 import (
 	"context"
 	"fmt"
-	"strings"
 
-	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -15,18 +13,6 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/output"
 	"github.com/todd-chamberlain/nstack/pkg/state"
 )
-
-// extractVersion returns the image tag from the first container, or "unknown".
-func extractVersion(containers []corev1.Container) string {
-	if len(containers) == 0 {
-		return "unknown"
-	}
-	img := containers[0].Image
-	if idx := strings.LastIndex(img, ":"); idx >= 0 {
-		return img[idx+1:]
-	}
-	return "unknown"
-}
 
 // GPUStage implements the Stage interface for deploying cert-manager and
 // the NVIDIA GPU Operator.
@@ -53,7 +39,7 @@ func (s *GPUStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectR
 		}
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "cert-manager",
-			Version:   extractVersion(cmDep.Spec.Template.Spec.Containers),
+			Version:   kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers),
 			Namespace: certManagerNamespace,
 			Status:    opStatus,
 		})
@@ -74,7 +60,7 @@ func (s *GPUStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectR
 		}
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "gpu-operator",
-			Version:   extractVersion(gpuDep.Spec.Template.Spec.Containers),
+			Version:   kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers),
 			Namespace: gpuOperatorNamespace,
 			Status:    opStatus,
 		})
@@ -111,7 +97,7 @@ func (s *GPUStage) Plan(ctx context.Context, kc *kube.Client, profile *config.Pr
 	// Plan cert-manager: check if its deployment exists.
 	cmDep, cmErr := cs.AppsV1().Deployments(certManagerNamespace).Get(ctx, certManagerRelease, metav1.GetOptions{})
 	if cmErr == nil {
-		cmVersion := extractVersion(cmDep.Spec.Template.Spec.Containers)
+		cmVersion := kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers)
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "cert-manager",
 			Action:    "skip",
@@ -133,7 +119,7 @@ func (s *GPUStage) Plan(ctx context.Context, kc *kube.Client, profile *config.Pr
 	// Plan GPU Operator: check if its deployment exists.
 	gpuDep, gpuErr := cs.AppsV1().Deployments(gpuOperatorNamespace).Get(ctx, gpuOperatorRelease, metav1.GetOptions{})
 	if gpuErr == nil {
-		gpuVersion := extractVersion(gpuDep.Spec.Template.Spec.Containers)
+		gpuVersion := kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers)
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "gpu-operator",
 			Action:    "skip",
@@ -153,19 +139,7 @@ func (s *GPUStage) Plan(ctx context.Context, kc *kube.Client, profile *config.Pr
 	}
 
 	// Determine overall stage action.
-	hasInstall := false
-	allSkip := true
-	for _, c := range plan.Components {
-		if c.Action == "install" {
-			hasInstall = true
-			allSkip = false
-		}
-	}
-	if allSkip {
-		plan.Action = "skip"
-	} else if hasInstall {
-		plan.Action = "install"
-	}
+	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
 
 	return plan, nil
 }
@@ -230,7 +204,7 @@ func (s *GPUStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageSt
 	} else {
 		cmStatus.Pods = int(cmDep.Status.Replicas)
 		cmStatus.Ready = int(cmDep.Status.ReadyReplicas)
-		cmStatus.Version = extractVersion(cmDep.Spec.Template.Spec.Containers)
+		cmStatus.Version = kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers)
 		if cmDep.Status.AvailableReplicas >= 1 {
 			cmStatus.Status = "running"
 		} else {
@@ -250,7 +224,7 @@ func (s *GPUStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageSt
 	} else {
 		gpuStatus.Pods = int(gpuDep.Status.Replicas)
 		gpuStatus.Ready = int(gpuDep.Status.ReadyReplicas)
-		gpuStatus.Version = extractVersion(gpuDep.Spec.Template.Spec.Containers)
+		gpuStatus.Version = kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers)
 		if gpuDep.Status.AvailableReplicas >= 1 {
 			gpuStatus.Status = "running"
 		} else {

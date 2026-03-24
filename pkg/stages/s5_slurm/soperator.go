@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/todd-chamberlain/nstack/internal/assets"
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
@@ -98,32 +97,15 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 		return fmt.Errorf("helm dep update for soperator: %w", err)
 	}
 
-	// Load the common base values from embedded assets.
-	commonData, err := assets.FS.ReadFile("charts/soperator/common.yaml")
+	// Load and merge values: common -> distribution overlay -> site overrides.
+	var distribution string
+	if profile != nil {
+		distribution = profile.Kubernetes.Distribution
+	}
+	mergedValues, err := helm.LoadChartValues("soperator", distribution, overrides)
 	if err != nil {
-		return fmt.Errorf("reading soperator common values: %w", err)
+		return fmt.Errorf("loading soperator values: %w", err)
 	}
-	commonVals, err := helm.LoadValuesFile(commonData)
-	if err != nil {
-		return fmt.Errorf("parsing soperator common values: %w", err)
-	}
-
-	// Try to load the distribution-specific overlay (e.g., k3s.yaml).
-	var profileVals map[string]interface{}
-	if profile != nil && profile.Kubernetes.Distribution != "" {
-		overlayPath := fmt.Sprintf("charts/soperator/%s.yaml", profile.Kubernetes.Distribution)
-		overlayData, readErr := assets.FS.ReadFile(overlayPath)
-		if readErr == nil {
-			profileVals, err = helm.LoadValuesFile(overlayData)
-			if err != nil {
-				return fmt.Errorf("parsing soperator %s overlay: %w", profile.Kubernetes.Distribution, err)
-			}
-			printer.Debugf("loaded soperator overlay: %s", overlayPath)
-		}
-	}
-
-	// Merge: common -> profile-specific -> site overrides.
-	mergedValues := helm.MergeValues(commonVals, profileVals, overrides)
 
 	hc.SetNamespace(soperatorNamespace)
 

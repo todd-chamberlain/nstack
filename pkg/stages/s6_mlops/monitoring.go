@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/todd-chamberlain/nstack/internal/assets"
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/output"
@@ -29,36 +28,19 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		return fmt.Errorf("adding prometheus-community repo: %w", err)
 	}
 
-	// 2. Load the common base values.
-	commonData, err := assets.FS.ReadFile("charts/monitoring/common.yaml")
-	if err != nil {
-		return fmt.Errorf("reading monitoring common values: %w", err)
+	// 2. Load and merge values: common -> distribution overlay -> site overrides.
+	var distribution string
+	if profile != nil {
+		distribution = profile.Kubernetes.Distribution
 	}
-	commonVals, err := helm.LoadValuesFile(commonData)
-	if err != nil {
-		return fmt.Errorf("parsing monitoring common values: %w", err)
-	}
-
-	// 3. Try to load the distribution-specific overlay (e.g., k3s.yaml).
-	var profileVals map[string]interface{}
-	if profile != nil && profile.Kubernetes.Distribution != "" {
-		overlayPath := fmt.Sprintf("charts/monitoring/%s.yaml", profile.Kubernetes.Distribution)
-		overlayData, readErr := assets.FS.ReadFile(overlayPath)
-		if readErr == nil {
-			profileVals, err = helm.LoadValuesFile(overlayData)
-			if err != nil {
-				return fmt.Errorf("parsing monitoring %s overlay: %w", profile.Kubernetes.Distribution, err)
-			}
-			printer.Debugf("loaded monitoring overlay: %s", overlayPath)
-		}
-	}
-
-	// 4. Merge: common -> profile-specific -> site overrides.
 	var overrides map[string]interface{}
 	if site != nil && site.Overrides != nil {
 		overrides = site.Overrides["monitoring"]
 	}
-	mergedValues := helm.MergeValues(commonVals, profileVals, overrides)
+	mergedValues, err := helm.LoadChartValues("monitoring", distribution, overrides)
+	if err != nil {
+		return fmt.Errorf("loading monitoring values: %w", err)
+	}
 
 	// 5. Install or upgrade the chart.
 	hc.SetNamespace(monitoringNS)
@@ -72,26 +54,6 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		helm.WithTimeout(10*time.Minute),
 	); err != nil {
 		return fmt.Errorf("installing kube-prometheus-stack: %w", err)
-	}
-
-	return nil
-}
-
-// destroyMonitoring removes the kube-prometheus-stack Helm release.
-func destroyMonitoring(ctx context.Context, hc *helm.Client, printer *output.Printer) error {
-	hc.SetNamespace(monitoringNS)
-
-	installed, _, err := hc.IsInstalled(monitoringRelease)
-	if err != nil {
-		return fmt.Errorf("checking monitoring release: %w", err)
-	}
-	if !installed {
-		printer.Debugf("monitoring release not installed, skipping")
-		return nil
-	}
-
-	if err := hc.Uninstall(monitoringRelease); err != nil {
-		return fmt.Errorf("uninstalling kube-prometheus-stack: %w", err)
 	}
 
 	return nil

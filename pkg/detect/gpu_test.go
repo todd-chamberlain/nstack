@@ -5,9 +5,15 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 )
+
+// newGPUQuantity is a helper to create a resource.Quantity for GPU counts.
+func newGPUQuantity(count int64) resource.Quantity {
+	return *resource.NewQuantity(count, resource.DecimalSI)
+}
 
 func TestDetectGPUs_FromLabels(t *testing.T) {
 	node := &corev1.Node{

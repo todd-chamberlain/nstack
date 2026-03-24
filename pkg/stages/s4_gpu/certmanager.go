@@ -18,12 +18,6 @@ const (
 	certManagerVersion   = "v1.17.2"
 )
 
-// isCertManagerInstalled checks whether cert-manager is already deployed.
-func isCertManagerInstalled(ctx context.Context, hc *helm.Client) (bool, string, error) {
-	hc.SetNamespace(certManagerNamespace)
-	return hc.IsInstalled(certManagerRelease)
-}
-
 // installCertManager deploys cert-manager via its Helm chart.
 func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Printer) error {
 	if err := hc.AddRepo(certManagerRepoName, certManagerRepo); err != nil {

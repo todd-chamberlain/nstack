@@ -5,7 +5,6 @@ import (
 	"strconv"
 
 	corev1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -86,9 +85,4 @@ func detectGPUFromNode(node corev1.Node) *DetectedGPU {
 		NodeName: node.Name,
 		Count:    count,
 	}
-}
-
-// newGPUQuantity is a helper for tests to create a resource.Quantity for GPU counts.
-func newGPUQuantity(count int64) resource.Quantity {
-	return *resource.NewQuantity(count, resource.DecimalSI)
 }
