@@ -151,6 +151,7 @@ func (s *DiscoveryStage) Status(ctx context.Context, kc *kube.Client) (*engine.S
 
 	count := len(s.lastResult.Nodes)
 	status.Status = "deployed"
+	// Pods and Ready fields represent discovered node count (not K8s pods) for this stage.
 	status.Components = append(status.Components, engine.ComponentStatus{
 		Name:   "discovered-nodes",
 		Status: "running",

@@ -3,7 +3,6 @@ package s2_kubernetes
 import (
 	"context"
 	"fmt"
-	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -124,14 +123,13 @@ func (s *KubernetesStage) Plan(ctx context.Context, kc *kube.Client, profile *co
 	}
 
 	// Add distribution-specific component.
+	action := "install"
+	if clusterReachable {
+		action = "skip"
+	}
 	plan.Components = append(plan.Components, engine.ComponentPlan{
-		Name: dist + "-bootstrap",
-		Action: func() string {
-			if clusterReachable {
-				return "skip"
-			}
-			return "install"
-		}(),
+		Name:   dist + "-bootstrap",
+		Action: action,
 	})
 
 	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
@@ -223,8 +221,6 @@ func (s *KubernetesStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 			}
 		}
 		status.Applied = oldest
-	} else {
-		status.Applied = time.Now()
 	}
 
 	// Overall status.

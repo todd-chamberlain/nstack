@@ -4,12 +4,30 @@ import (
 	"context"
 	"fmt"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
+
+// clusterAlreadyRunning checks if a Kubernetes cluster is reachable via the
+// site's kubeconfig and returns the node count if so.
+func clusterAlreadyRunning(ctx context.Context, site *config.Site) (nodeCount int, running bool) {
+	if site == nil || site.Kubeconfig == "" {
+		return 0, false
+	}
+	kc, err := kube.NewClient(site.Kubeconfig)
+	if err != nil {
+		return 0, false
+	}
+	nodes, err := kc.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
+	if err != nil || len(nodes.Items) == 0 {
+		return 0, false
+	}
+	return len(nodes.Items), true
+}
 
 // bootstrapCluster sets up Kubernetes based on the profile's distribution.
 func bootstrapCluster(ctx context.Context, kc *kube.Client, site *config.Site, profile *config.Profile, printer *output.Printer) error {
@@ -39,16 +57,9 @@ func bootstrapCluster(ctx context.Context, kc *kube.Client, site *config.Site, p
 func bootstrapK3s(ctx context.Context, site *config.Site, profile *config.Profile, printer *output.Printer) error {
 	printer.Infof("        K3s: checking cluster status")
 
-	// Check if K3s is already running locally.
-	if site != nil && site.Kubeconfig != "" {
-		kc, err := kube.NewClient(site.Kubeconfig)
-		if err == nil {
-			nodes, listErr := kc.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-			if listErr == nil && len(nodes.Items) > 0 {
-				printer.Infof("        K3s cluster already running with %d node(s)", len(nodes.Items))
-				return nil
-			}
-		}
+	if count, running := clusterAlreadyRunning(ctx, site); running {
+		printer.Infof("        K3s cluster already running with %d node(s)", count)
+		return nil
 	}
 
 	// K3s not running — provide installation instructions.
@@ -60,10 +71,6 @@ func bootstrapK3s(ctx context.Context, site *config.Site, profile *config.Profil
 
 	if profile.Networking.Overlay == "wireguard" {
 		printer.Infof("              --flannel-backend=wireguard-native \\")
-	}
-
-	if profile.Kubernetes.ContainerdSocket != "" {
-		printer.Infof("              --data-dir=%s", profile.Kubernetes.ContainerdSocket)
 	}
 
 	// For multi-node, provide agent join instructions.
@@ -79,15 +86,9 @@ func bootstrapK3s(ctx context.Context, site *config.Site, profile *config.Profil
 func bootstrapKubeadm(ctx context.Context, site *config.Site, profile *config.Profile, printer *output.Printer) error {
 	printer.Infof("        kubeadm: checking cluster status")
 
-	if site != nil && site.Kubeconfig != "" {
-		kc, err := kube.NewClient(site.Kubeconfig)
-		if err == nil {
-			nodes, listErr := kc.Clientset().CoreV1().Nodes().List(ctx, metav1.ListOptions{})
-			if listErr == nil && len(nodes.Items) > 0 {
-				printer.Infof("        kubeadm cluster already running with %d node(s)", len(nodes.Items))
-				return nil
-			}
-		}
+	if count, running := clusterAlreadyRunning(ctx, site); running {
+		printer.Infof("        kubeadm cluster already running with %d node(s)", count)
+		return nil
 	}
 
 	printer.Infof("        kubeadm: cluster not detected")
@@ -133,7 +134,7 @@ func validateExistingCluster(ctx context.Context, kc *kube.Client, printer *outp
 	ready := 0
 	for _, node := range nodes.Items {
 		for _, cond := range node.Status.Conditions {
-			if cond.Type == "Ready" && cond.Status == "True" {
+			if cond.Type == corev1.NodeReady && cond.Status == corev1.ConditionTrue {
 				ready++
 			}
 		}
