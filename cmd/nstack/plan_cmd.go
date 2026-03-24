@@ -80,7 +80,10 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		}
 
 		if format == "json" {
-			data, _ := json.MarshalIndent(plan, "", "  ")
+			data, err := json.MarshalIndent(plan, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshaling plan for stage %d: %w", num, err)
+			}
 			fmt.Println(string(data))
 			continue
 		}

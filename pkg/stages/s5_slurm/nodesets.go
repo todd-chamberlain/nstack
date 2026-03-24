@@ -41,6 +41,7 @@ func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, pr
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		nodesetsRelease,
 		chartDir, // local chart path
 		slurmNamespace,

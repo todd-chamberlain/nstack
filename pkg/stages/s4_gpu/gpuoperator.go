@@ -38,6 +38,7 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Pr
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		gpuOperatorRelease,
 		gpuOperatorChart,
 		gpuOperatorNamespace,

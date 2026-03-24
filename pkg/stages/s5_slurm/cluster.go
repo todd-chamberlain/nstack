@@ -40,6 +40,7 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		slurmClusterRelease,
 		chartDir, // local chart path
 		slurmNamespace,

@@ -44,6 +44,7 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 
 	// 3. Install or upgrade the chart.
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		monitoringRelease,
 		prometheusChart,
 		monitoringNS,

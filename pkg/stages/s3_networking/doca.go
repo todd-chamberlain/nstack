@@ -37,6 +37,7 @@ func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *con
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		docaRelease,
 		docaChart,
 		docaNamespace,

@@ -46,12 +46,20 @@ type BMCCredentials struct {
 	Password string
 }
 
+// maxScanIPs is the maximum number of IPs allowed in a single CIDR scan
+// to prevent accidental scans of very large subnets (/20 or wider).
+const maxScanIPs = 4096
+
 // ScanNetwork scans a CIDR range for BMC endpoints using Redfish and IPMI.
 // It probes common BMC ports (443 for Redfish, 623 for IPMI) on each IP.
 func ScanNetwork(ctx context.Context, cidr string, credentials BMCCredentials, concurrency int) (*ScanResult, error) {
 	ips, err := expandCIDR(cidr)
 	if err != nil {
 		return nil, fmt.Errorf("parsing CIDR %s: %w", cidr, err)
+	}
+
+	if len(ips) > maxScanIPs {
+		return nil, fmt.Errorf("CIDR %s contains %d addresses (max %d); use a narrower subnet", cidr, len(ips), maxScanIPs)
 	}
 
 	if concurrency <= 0 {

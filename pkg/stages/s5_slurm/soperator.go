@@ -114,6 +114,7 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		soperatorRelease,
 		chartDir, // local chart path
 		soperatorNamespace,

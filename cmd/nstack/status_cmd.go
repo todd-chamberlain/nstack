@@ -56,7 +56,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		}
 
 		if format == "json" {
-			data, _ := json.MarshalIndent(status, "", "  ")
+			data, err := json.MarshalIndent(status, "", "  ")
+			if err != nil {
+				return fmt.Errorf("marshaling stage %d status: %w", stageNum, err)
+			}
 			fmt.Println(string(data))
 			return nil
 		}
@@ -91,7 +94,10 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if format == "json" {
-		data, _ := json.MarshalIndent(currentState, "", "  ")
+		data, err := json.MarshalIndent(currentState, "", "  ")
+		if err != nil {
+			return fmt.Errorf("marshaling deployment state: %w", err)
+		}
 		fmt.Println(string(data))
 		return nil
 	}

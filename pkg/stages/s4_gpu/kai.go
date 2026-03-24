@@ -49,6 +49,7 @@ func installKAIScheduler(ctx context.Context, hc *helm.Client, overrides map[str
 	}
 
 	err := hc.UpgradeOrInstall(
+		ctx,
 		kaiSchedulerRelease,
 		kaiSchedulerChart,
 		kaiSchedulerNamespace,

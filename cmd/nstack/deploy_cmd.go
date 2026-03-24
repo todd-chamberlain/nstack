@@ -70,16 +70,18 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 			site.Overrides = make(map[string]map[string]interface{})
 		}
 		for key, val := range parsed {
-			if subMap, isMap := val.(map[string]interface{}); isMap {
-				existing := site.Overrides[key]
-				if existing == nil {
-					existing = make(map[string]interface{})
-				}
-				for k, v := range subMap {
-					existing[k] = v
-				}
-				site.Overrides[key] = existing
+			subMap, isMap := val.(map[string]interface{})
+			if !isMap {
+				return fmt.Errorf("--set key %q must be prefixed with a component name (e.g., gpu-operator.%s)", key, key)
 			}
+			existing := site.Overrides[key]
+			if existing == nil {
+				existing = make(map[string]interface{})
+			}
+			for k, v := range subMap {
+				existing[k] = v
+			}
+			site.Overrides[key] = existing
 		}
 	}
 

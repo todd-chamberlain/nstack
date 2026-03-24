@@ -40,6 +40,7 @@ func deployMetal3(ctx context.Context, hc *helm.Client, kc *kube.Client, printer
 	}
 
 	return hc.UpgradeOrInstall(
+		ctx,
 		metal3Release,
 		metal3Chart,
 		metal3Namespace,

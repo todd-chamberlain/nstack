@@ -3,6 +3,7 @@ package s5_slurm
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -138,7 +139,7 @@ func ensureHostPathPV(ctx context.Context, cs kubernetes.Interface, name, namesp
 			ClaimRef: &corev1.ObjectReference{
 				APIVersion: "v1",
 				Kind:       "PersistentVolumeClaim",
-				Name:       name[:len(name)-2] + "vc", // e.g., controller-spool-pv -> controller-spool-pvc
+				Name:       strings.TrimSuffix(name, "-pv") + "-pvc", // e.g., controller-spool-pv -> controller-spool-pvc
 				Namespace:  namespace,
 			},
 			PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,

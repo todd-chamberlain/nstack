@@ -31,6 +31,7 @@ func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Pr
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		certManagerRelease,
 		certManagerChart,
 		certManagerNamespace,

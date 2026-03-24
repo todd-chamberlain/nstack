@@ -42,6 +42,7 @@ func installNetworkOperator(ctx context.Context, hc *helm.Client, site *config.S
 	}
 
 	if err := hc.UpgradeOrInstall(
+		ctx,
 		networkOperatorRelease,
 		networkOperatorChart,
 		networkOperatorNamespace,

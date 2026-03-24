@@ -22,10 +22,6 @@ type Printer struct {
 
 	// mu guards writes so output is safe from concurrent goroutines.
 	mu sync.Mutex
-
-	// index tracks the current component index within a stage for alignment.
-	index int
-	total int
 }
 
 // New creates a Printer configured for the given format and verbosity.
@@ -83,9 +79,6 @@ func (p *Printer) StageHeader(stage int, name string) {
 // is left open (no newline) so ComponentDone can append the result.
 // Text mode: "  [1/3] component-name v1.2.3 .............. action"
 func (p *Printer) ComponentStart(index, total int, name, version, action string) {
-	p.index = index
-	p.total = total
-
 	if p.format == "json" {
 		p.EmitJSON(Event{
 			Component: name,

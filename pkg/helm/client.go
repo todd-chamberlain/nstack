@@ -113,7 +113,7 @@ func (c *Client) AddRepo(name, url string) error {
 
 // UpgradeOrInstall installs a chart if the release does not exist, or upgrades it
 // if it does. This is the idempotent install-or-upgrade pattern used by nstack.
-func (c *Client) UpgradeOrInstall(releaseName, chartRef, namespace string, values map[string]interface{}, opts ...Option) error {
+func (c *Client) UpgradeOrInstall(ctx context.Context, releaseName, chartRef, namespace string, values map[string]interface{}, opts ...Option) error {
 	o := &installOpts{
 		timeout: 5 * time.Minute,
 	}
@@ -151,13 +151,13 @@ func (c *Client) UpgradeOrInstall(releaseName, chartRef, namespace string, value
 	}
 
 	if !releaseExists {
-		return c.installRelease(cfg, releaseName, chartRef, namespace, values, o)
+		return c.installRelease(ctx, cfg, releaseName, chartRef, namespace, values, o)
 	}
-	return c.upgradeRelease(cfg, releaseName, chartRef, namespace, values, o)
+	return c.upgradeRelease(ctx, cfg, releaseName, chartRef, namespace, values, o)
 }
 
 // installRelease performs a fresh Helm install.
-func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
+func (c *Client) installRelease(ctx context.Context, cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
 	install := action.NewInstall(cfg)
 	install.ReleaseName = releaseName
 	install.Namespace = namespace
@@ -179,7 +179,7 @@ func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef
 		return fmt.Errorf("loading chart %s: %w", chartPath, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
+	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
 	_, err = install.RunWithContext(ctx, ch, values)
@@ -191,7 +191,7 @@ func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef
 }
 
 // upgradeRelease performs a Helm upgrade on an existing release.
-func (c *Client) upgradeRelease(cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
+func (c *Client) upgradeRelease(ctx context.Context, cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
 	upgrade := action.NewUpgrade(cfg)
 	upgrade.Namespace = namespace
 	upgrade.Wait = o.wait
@@ -211,7 +211,7 @@ func (c *Client) upgradeRelease(cfg *action.Configuration, releaseName, chartRef
 		return fmt.Errorf("loading chart %s: %w", chartPath, err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), o.timeout)
+	ctx, cancel := context.WithTimeout(ctx, o.timeout)
 	defer cancel()
 
 	_, err = upgrade.RunWithContext(ctx, releaseName, ch, values)

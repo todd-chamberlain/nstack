@@ -26,7 +26,7 @@ func init() {
 }
 
 func runInit(cmd *cobra.Command, args []string) error {
-	siteName, _ := cmd.Flags().GetString("site")
+	siteName := viper.GetString("site")
 	profile, _ := cmd.Flags().GetString("profile")
 	kubeconfig, _ := cmd.Flags().GetString("kubeconfig")
 
@@ -69,7 +69,11 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	if kubeconfig == "" {
-		defaultKC := filepath.Join(os.Getenv("HOME"), ".kube", "config")
+		homeDir, err := os.UserHomeDir()
+		if err != nil {
+			return fmt.Errorf("determining home directory: %w", err)
+		}
+		defaultKC := filepath.Join(homeDir, ".kube", "config")
 		fmt.Printf("Kubeconfig path [%s]: ", defaultKC)
 		fmt.Scanln(&kubeconfig)
 		kubeconfig = strings.TrimSpace(kubeconfig)
@@ -97,7 +101,11 @@ func writeConfig(siteName, profile, kubeconfig string) error {
 		return fmt.Errorf("marshaling config: %w", err)
 	}
 
-	configDir := filepath.Join(os.Getenv("HOME"), ".nstack")
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("determining home directory: %w", err)
+	}
+	configDir := filepath.Join(homeDir, ".nstack")
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}

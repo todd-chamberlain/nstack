@@ -113,6 +113,7 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 	}
 
 	return hc.UpgradeOrInstall(
+		ctx,
 		"tailscale-operator",
 		"tailscale/tailscale-operator",
 		"tailscale-system",
