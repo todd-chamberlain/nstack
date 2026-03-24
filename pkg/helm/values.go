@@ -2,6 +2,7 @@ package helm
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/todd-chamberlain/nstack/internal/assets"
@@ -121,5 +122,30 @@ func setNestedValue(m map[string]interface{}, path []string, value string) {
 		}
 		m = nextMap
 	}
-	m[path[len(path)-1]] = value
+	m[path[len(path)-1]] = coerceValue(value)
+}
+
+// coerceValue converts a string value to its appropriate Go type.
+// "true"/"false" become bool, integer strings become int64,
+// float strings become float64, and everything else stays string.
+func coerceValue(s string) interface{} {
+	// Boolean coercion.
+	if s == "true" {
+		return true
+	}
+	if s == "false" {
+		return false
+	}
+
+	// Integer coercion (try before float so "3" becomes int64, not float64).
+	if v, err := strconv.ParseInt(s, 10, 64); err == nil {
+		return v
+	}
+
+	// Float coercion.
+	if v, err := strconv.ParseFloat(s, 64); err == nil {
+		return v
+	}
+
+	return s
 }

@@ -72,12 +72,18 @@ func NewClient(kubeconfig string) *Client {
 }
 
 // actionConfig builds an action.Configuration bound to the client's kubeconfig and the given namespace.
+// A fresh cli.EnvSettings is created per call to avoid mutating the shared c.settings field,
+// which would cause a race condition when actionConfig is called concurrently.
 func (c *Client) actionConfig(namespace string) (*action.Configuration, error) {
+	settings := cli.New()
+	if c.kubeconfig != "" {
+		settings.KubeConfig = c.kubeconfig
+	}
 	if namespace != "" {
-		c.settings.SetNamespace(namespace)
+		settings.SetNamespace(namespace)
 	}
 	cfg := new(action.Configuration)
-	err := cfg.Init(c.settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
+	err := cfg.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
 	if err != nil {
 		return nil, fmt.Errorf("initializing Helm configuration: %w", err)
 	}

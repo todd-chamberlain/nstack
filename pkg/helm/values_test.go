@@ -143,8 +143,37 @@ func TestParseSetValues_Multiple(t *testing.T) {
 	if img["pullPolicy"] != "Always" {
 		t.Errorf("expected pullPolicy=Always, got %v", img["pullPolicy"])
 	}
-	if result["replicas"] != "3" {
-		t.Errorf("expected replicas=3, got %v", result["replicas"])
+	if result["replicas"] != int64(3) {
+		t.Errorf("expected replicas=int64(3), got %v (%T)", result["replicas"], result["replicas"])
+	}
+}
+
+func TestParseSetValues_TypeCoercion(t *testing.T) {
+	result, err := ParseSetValues([]string{
+		"enabled=true",
+		"disabled=false",
+		"count=42",
+		"ratio=3.14",
+		"name=hello",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result["enabled"] != true {
+		t.Errorf("expected enabled=true (bool), got %v (%T)", result["enabled"], result["enabled"])
+	}
+	if result["disabled"] != false {
+		t.Errorf("expected disabled=false (bool), got %v (%T)", result["disabled"], result["disabled"])
+	}
+	if result["count"] != int64(42) {
+		t.Errorf("expected count=int64(42), got %v (%T)", result["count"], result["count"])
+	}
+	if result["ratio"] != 3.14 {
+		t.Errorf("expected ratio=3.14 (float64), got %v (%T)", result["ratio"], result["ratio"])
+	}
+	if result["name"] != "hello" {
+		t.Errorf("expected name=hello (string), got %v (%T)", result["name"], result["name"])
 	}
 }
 

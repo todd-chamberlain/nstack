@@ -39,7 +39,10 @@ func cloneSoperatorRepo(ctx context.Context, printer *output.Printer) (string, e
 
 	printer.Debugf("cloning soperator %s to %s", soperatorGitTag, tmpDir)
 
-	cmd := exec.CommandContext(ctx, "git", "clone",
+	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(cloneCtx, "git", "clone",
 		"--depth", "1",
 		"--branch", soperatorGitTag,
 		soperatorGitRepo,

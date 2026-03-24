@@ -3,6 +3,7 @@ package engine
 import (
 	"context"
 	"fmt"
+	"log"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
@@ -139,7 +140,10 @@ func PlanDeploymentComponent(ctx context.Context, cs kubernetes.Interface, name,
 // Use this for components managed via Helm where the deployment name differs
 // from the release name (e.g., monitoring stack, soperator).
 func PlanHelmComponent(hc *helm.Client, name, chart, targetVersion, namespace, releaseName string) ComponentPlan {
-	installed, currentVersion, _ := hc.IsInstalled(releaseName, namespace)
+	installed, currentVersion, err := hc.IsInstalled(releaseName, namespace)
+	if err != nil {
+		log.Printf("warning: checking helm release %q in %s: %v", releaseName, namespace, err)
+	}
 	if installed {
 		return ComponentPlan{
 			Name:      name,

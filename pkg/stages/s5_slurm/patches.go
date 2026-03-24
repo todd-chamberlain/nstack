@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"os"
 	"os/exec"
 
 	corev1 "k8s.io/api/core/v1"
@@ -11,6 +13,8 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/tools/remotecommand"
+	"k8s.io/kubectl/pkg/scheme"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
@@ -280,6 +284,10 @@ func patchWorkerInitSkip(ctx context.Context, kc *kube.Client, printer *output.P
 // to the standard path expected by kruise-daemon. This must persist across reboots
 // so we also create a systemd mount unit.
 func patchContainerdSocketBind(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("containerd socket bind requires root privileges (run with sudo)")
+	}
+
 	k3sSocket := "/run/k3s/containerd/containerd.sock"
 	stdSocket := "/run/containerd/containerd.sock"
 
@@ -340,6 +348,31 @@ WantedBy=multi-user.target
 	return nil
 }
 
+// execInPod executes a command in a pod container using client-go remotecommand
+// instead of shelling out to kubectl.
+func execInPod(ctx context.Context, kc *kube.Client, namespace, podName, container string, command []string) error {
+	req := kc.Clientset().CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		VersionedParams(&corev1.PodExecOptions{
+			Container: container,
+			Command:   command,
+			Stdout:    true,
+			Stderr:    true,
+		}, scheme.ParameterCodec)
+
+	executor, err := remotecommand.NewSPDYExecutor(kc.RESTConfig(), "POST", req.URL())
+	if err != nil {
+		return err
+	}
+	return executor.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: io.Discard,
+		Stderr: io.Discard,
+	})
+}
+
 // patchSpankDisable disables the SPANK chroot plugin in plugstack.conf across
 // all Slurm pods (controller, worker, login). The chroot.so plugin is not
 // available in the K3s jail environment.
@@ -363,12 +396,12 @@ func patchSpankDisable(ctx context.Context, kc *kube.Client, printer *output.Pri
 			continue
 		}
 
-		// Use kubectl exec to overwrite plugstack.conf.
-		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
-			t.name, "-c", t.container, "--",
-			"bash", "-c", `echo "# SPANK disabled for K3s by NStack" > /etc/slurm/plugstack.conf`)
-		if out, err := cmd.CombinedOutput(); err != nil {
-			printer.Debugf("SPANK disable on %s (non-fatal): %s: %v", t.name, string(out), err)
+		// Use client-go remotecommand to overwrite plugstack.conf.
+		err = execInPod(ctx, kc, slurmNamespace, t.name, t.container, []string{
+			"bash", "-c", `echo "# SPANK disabled for K3s by NStack" > /etc/slurm/plugstack.conf`,
+		})
+		if err != nil {
+			printer.Debugf("SPANK disable on %s (non-fatal): %v", t.name, err)
 		} else {
 			printer.Debugf("disabled SPANK on %s/%s", t.name, t.container)
 		}

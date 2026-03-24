@@ -3,6 +3,7 @@ package s6_mlops
 import (
 	"context"
 	"fmt"
+	"log"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
@@ -33,7 +34,10 @@ func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 
 	// Check kube-prometheus-stack via Helm release (not a Deployment).
 	hc := helm.NewClient(kc.Kubeconfig())
-	installed, version, _ := hc.IsInstalled(monitoringRelease, monitoringNS)
+	installed, version, err := hc.IsInstalled(monitoringRelease, monitoringNS)
+	if err != nil {
+		log.Printf("warning: checking helm release %q in %s: %v", monitoringRelease, monitoringNS, err)
+	}
 	if installed {
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "kube-prometheus-stack",
