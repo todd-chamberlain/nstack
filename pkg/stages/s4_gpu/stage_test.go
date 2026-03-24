@@ -148,10 +148,11 @@ func TestGPUStage_Plan_BothNew(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan returned error: %v", err)
 	}
-	if len(plan.Components) != 2 {
-		t.Fatalf("expected 2 components, got %d", len(plan.Components))
+	if len(plan.Components) != 3 {
+		t.Fatalf("expected 3 components, got %d", len(plan.Components))
 	}
 
+	// cert-manager and gpu-operator should be install; kai-scheduler is also install candidate.
 	for _, comp := range plan.Components {
 		if comp.Action != "install" {
 			t.Errorf("component %s: expected action=install, got %s", comp.Name, comp.Action)
@@ -160,6 +161,11 @@ func TestGPUStage_Plan_BothNew(t *testing.T) {
 
 	if plan.Action != "install" {
 		t.Errorf("expected plan action=install, got %s", plan.Action)
+	}
+
+	// Verify kai-scheduler is the third component.
+	if plan.Components[2].Name != "kai-scheduler" {
+		t.Errorf("expected third component name=kai-scheduler, got %s", plan.Components[2].Name)
 	}
 }
 
@@ -176,18 +182,29 @@ func TestGPUStage_Plan_BothExist(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan returned error: %v", err)
 	}
-	if len(plan.Components) != 2 {
-		t.Fatalf("expected 2 components, got %d", len(plan.Components))
+	if len(plan.Components) != 3 {
+		t.Fatalf("expected 3 components, got %d", len(plan.Components))
 	}
 
-	for _, comp := range plan.Components {
+	// cert-manager and gpu-operator are skip; kai-scheduler is install candidate.
+	for _, comp := range plan.Components[:2] {
 		if comp.Action != "skip" {
 			t.Errorf("component %s: expected action=skip, got %s", comp.Name, comp.Action)
 		}
 	}
 
-	if plan.Action != "skip" {
-		t.Errorf("expected plan action=skip, got %s", plan.Action)
+	// kai-scheduler not deployed so it's an install candidate.
+	kaiComp := plan.Components[2]
+	if kaiComp.Name != "kai-scheduler" {
+		t.Errorf("expected third component name=kai-scheduler, got %s", kaiComp.Name)
+	}
+	if kaiComp.Action != "install" {
+		t.Errorf("kai-scheduler: expected action=install, got %s", kaiComp.Action)
+	}
+
+	// Overall action is install because kai-scheduler is a candidate.
+	if plan.Action != "install" {
+		t.Errorf("expected plan action=install, got %s", plan.Action)
 	}
 }
 

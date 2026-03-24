@@ -107,6 +107,12 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 		}
 	}
 
+	// Validate that OAuth credentials are provided after merging overrides.
+	oauth, ok := values["oauth"].(map[string]interface{})
+	if !ok || oauth["clientId"] == nil || oauth["clientId"] == "" || oauth["clientSecret"] == nil || oauth["clientSecret"] == "" {
+		return fmt.Errorf("tailscale overlay requires oauth.clientId and oauth.clientSecret in site overrides['tailscale']")
+	}
+
 	return hc.UpgradeOrInstall(
 		"tailscale-operator",
 		"tailscale/tailscale-operator",

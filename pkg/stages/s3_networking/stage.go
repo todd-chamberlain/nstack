@@ -84,8 +84,8 @@ func (s *NetworkingStage) Validate(ctx context.Context, kc *kube.Client, profile
 	return nil
 }
 
-// Plan builds a StagePlan describing what actions to take for the
-// Network Operator and DOCA components.
+// Plan builds a StagePlan describing what actions to take for the overlay,
+// Network Operator, and DOCA components.
 func (s *NetworkingStage) Plan(ctx context.Context, kc *kube.Client, profile *config.Profile, current *state.StageState) (*engine.StagePlan, error) {
 	plan := &engine.StagePlan{
 		Stage: s.Number(),
@@ -93,6 +93,21 @@ func (s *NetworkingStage) Plan(ctx context.Context, kc *kube.Client, profile *co
 	}
 
 	cs := kc.Clientset()
+
+	// Plan overlay component (prepended before network-operator).
+	overlayType := "none"
+	if profile != nil && profile.Networking.Overlay != "" {
+		overlayType = profile.Networking.Overlay
+	}
+	overlayAction := "skip"
+	if overlayType != "none" {
+		overlayAction = "install"
+	}
+	plan.Components = append(plan.Components, engine.ComponentPlan{
+		Name:      "overlay",
+		Action:    overlayAction,
+		Namespace: "kube-system",
+	})
 
 	// Plan network-operator: skip if no fabric configured, otherwise check deployment.
 	if !hasFabric(nil, profile) {
@@ -174,6 +189,10 @@ func (s *NetworkingStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.C
 			var err error
 
 			switch comp.Name {
+			case "overlay":
+				printer.ComponentStart(idx, total, comp.Name, comp.Version, "configuring")
+				err = configureOverlay(ctx, kc, hc, site, profile, printer)
+
 			case "network-operator":
 				if !hasFabric(site, profile) {
 					printer.ComponentSkipped(idx, total, comp.Name, "", "no fabric configured")
@@ -236,25 +255,30 @@ func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 	}
 	status.Components = append(status.Components, noStatus)
 
-	// Check DOCA deployment.
-	docaStatus := engine.ComponentStatus{
-		Name:      "doca-platform",
-		Namespace: docaNamespace,
-	}
-	docaDep, err := cs.AppsV1().Deployments(docaNamespace).Get(ctx, docaRelease, metav1.GetOptions{})
-	if err != nil {
-		docaStatus.Status = "not-installed"
-	} else {
-		docaStatus.Pods = int(docaDep.Status.Replicas)
-		docaStatus.Ready = int(docaDep.Status.ReadyReplicas)
-		docaStatus.Version = kube.ExtractImageVersion(docaDep.Spec.Template.Spec.Containers)
-		if docaDep.Status.AvailableReplicas >= 1 {
-			docaStatus.Status = "running"
-		} else {
-			docaStatus.Status = "degraded"
+	// Only check DOCA if it appears to have been deployed (namespace exists).
+	// On clusters without DPUs, DOCA is never installed, so we treat it as
+	// not-applicable rather than not-installed.
+	_, nsErr := cs.CoreV1().Namespaces().Get(ctx, docaNamespace, metav1.GetOptions{})
+	if nsErr == nil {
+		docaStatus := engine.ComponentStatus{
+			Name:      "doca-platform",
+			Namespace: docaNamespace,
 		}
+		docaDep, docaErr := cs.AppsV1().Deployments(docaNamespace).Get(ctx, docaRelease, metav1.GetOptions{})
+		if docaErr != nil {
+			docaStatus.Status = "not-installed"
+		} else {
+			docaStatus.Pods = int(docaDep.Status.Replicas)
+			docaStatus.Ready = int(docaDep.Status.ReadyReplicas)
+			docaStatus.Version = kube.ExtractImageVersion(docaDep.Spec.Template.Spec.Containers)
+			if docaDep.Status.AvailableReplicas >= 1 {
+				docaStatus.Status = "running"
+			} else {
+				docaStatus.Status = "degraded"
+			}
+		}
+		status.Components = append(status.Components, docaStatus)
 	}
-	status.Components = append(status.Components, docaStatus)
 
 	// Determine overall status.
 	allRunning := true
@@ -280,23 +304,26 @@ func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 	return status, nil
 }
 
-// Destroy removes the DOCA Platform and Network Operator from the cluster.
+// Destroy removes the DOCA Platform, Network Operator, and overlay from the cluster.
 // DOCA is removed first since it may depend on Network Operator CRDs.
+// Overlay is removed last since it is independent infrastructure.
 func (s *NetworkingStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
+	total := 3
+
 	// Uninstall DOCA first.
 	installed, version, err := hc.IsInstalled(docaRelease, docaNamespace)
 	if err != nil {
 		return fmt.Errorf("checking doca: %w", err)
 	}
 	if installed {
-		printer.ComponentStart(1, 2, "doca-platform", version, "destroying")
+		printer.ComponentStart(1, total, "doca-platform", version, "destroying")
 		err = hc.Uninstall(docaRelease, docaNamespace)
 		printer.ComponentDone("doca-platform", err)
 		if err != nil {
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(1, 2, "doca-platform", "", "not installed")
+		printer.ComponentSkipped(1, total, "doca-platform", "", "not installed")
 	}
 
 	// Uninstall Network Operator.
@@ -305,14 +332,30 @@ func (s *NetworkingStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm
 		return fmt.Errorf("checking network-operator: %w", err)
 	}
 	if installed {
-		printer.ComponentStart(2, 2, "network-operator", version, "destroying")
+		printer.ComponentStart(2, total, "network-operator", version, "destroying")
 		err = hc.Uninstall(networkOperatorRelease, networkOperatorNamespace)
 		printer.ComponentDone("network-operator", err)
 		if err != nil {
 			return err
 		}
 	} else {
-		printer.ComponentSkipped(2, 2, "network-operator", "", "not installed")
+		printer.ComponentSkipped(2, total, "network-operator", "", "not installed")
+	}
+
+	// Uninstall overlay (Tailscale operator, if installed).
+	installed, version, err = hc.IsInstalled("tailscale-operator", "tailscale-system")
+	if err != nil {
+		return fmt.Errorf("checking tailscale-operator: %w", err)
+	}
+	if installed {
+		printer.ComponentStart(3, total, "overlay", version, "destroying")
+		err = hc.Uninstall("tailscale-operator", "tailscale-system")
+		printer.ComponentDone("overlay", err)
+		if err != nil {
+			return err
+		}
+	} else {
+		printer.ComponentSkipped(3, total, "overlay", "", "not installed")
 	}
 
 	return nil

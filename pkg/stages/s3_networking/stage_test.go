@@ -166,13 +166,22 @@ func TestNetworkingStage_Plan_WithInfiniBand(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Plan returned error: %v", err)
 	}
-	if len(plan.Components) != 2 {
-		t.Fatalf("expected 2 components, got %d", len(plan.Components))
+	if len(plan.Components) != 3 {
+		t.Fatalf("expected 3 components, got %d", len(plan.Components))
 	}
 
-	noComp := plan.Components[0]
+	// First component is overlay (skip since no overlay configured).
+	overlayComp := plan.Components[0]
+	if overlayComp.Name != "overlay" {
+		t.Errorf("expected first component name=overlay, got %s", overlayComp.Name)
+	}
+	if overlayComp.Action != "skip" {
+		t.Errorf("overlay: expected action=skip, got %s", overlayComp.Action)
+	}
+
+	noComp := plan.Components[1]
 	if noComp.Name != "network-operator" {
-		t.Errorf("expected first component name=network-operator, got %s", noComp.Name)
+		t.Errorf("expected second component name=network-operator, got %s", noComp.Name)
 	}
 	if noComp.Action != "install" {
 		t.Errorf("network-operator: expected action=install, got %s", noComp.Action)
@@ -201,9 +210,15 @@ func TestNetworkingStage_Plan_NoFabric(t *testing.T) {
 		t.Fatalf("Plan returned error: %v", err)
 	}
 
-	noComp := plan.Components[0]
+	// First component is overlay.
+	overlayComp := plan.Components[0]
+	if overlayComp.Name != "overlay" {
+		t.Errorf("expected first component name=overlay, got %s", overlayComp.Name)
+	}
+
+	noComp := plan.Components[1]
 	if noComp.Name != "network-operator" {
-		t.Errorf("expected first component name=network-operator, got %s", noComp.Name)
+		t.Errorf("expected second component name=network-operator, got %s", noComp.Name)
 	}
 	if noComp.Action != "skip" {
 		t.Errorf("network-operator: expected action=skip, got %s", noComp.Action)
@@ -230,13 +245,18 @@ func TestNetworkingStage_Plan_WithDPU(t *testing.T) {
 		t.Fatalf("Plan returned error: %v", err)
 	}
 
-	if len(plan.Components) != 2 {
-		t.Fatalf("expected 2 components, got %d", len(plan.Components))
+	if len(plan.Components) != 3 {
+		t.Fatalf("expected 3 components, got %d", len(plan.Components))
 	}
 
-	docaComp := plan.Components[1]
+	// First component is overlay.
+	if plan.Components[0].Name != "overlay" {
+		t.Errorf("expected first component name=overlay, got %s", plan.Components[0].Name)
+	}
+
+	docaComp := plan.Components[2]
 	if docaComp.Name != "doca-platform" {
-		t.Errorf("expected second component name=doca-platform, got %s", docaComp.Name)
+		t.Errorf("expected third component name=doca-platform, got %s", docaComp.Name)
 	}
 	// DOCA is an install candidate; Apply() checks for DPU nodes.
 	if docaComp.Action != "install" {
@@ -257,9 +277,13 @@ func TestNetworkingStage_Validate(t *testing.T) {
 }
 
 func TestNetworkingStage_Status_Running(t *testing.T) {
+	docaNs := &corev1.Namespace{
+		ObjectMeta: metav1.ObjectMeta{Name: docaNamespace},
+	}
 	cs := fake.NewSimpleClientset(
 		makeNetworkOperatorDeployment(1),
 		makeDOCADeployment(1),
+		docaNs,
 	)
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	stage := New()
@@ -294,6 +318,12 @@ func TestNetworkingStage_Status_NotInstalled(t *testing.T) {
 	}
 	if status.Status != "not-installed" {
 		t.Errorf("expected status=not-installed, got %s", status.Status)
+	}
+	// DOCA should not appear in components when its namespace doesn't exist.
+	for _, c := range status.Components {
+		if c.Name == "doca-platform" {
+			t.Error("doca-platform should not be in components when namespace doesn't exist")
+		}
 	}
 }
 
