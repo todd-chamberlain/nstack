@@ -88,20 +88,17 @@ func TestGPUStage_Detect_Found(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect returned error: %v", err)
 	}
-	if len(result.Operators) != 2 {
-		t.Fatalf("expected 2 operators, got %d", len(result.Operators))
-	}
-
-	for _, op := range result.Operators {
-		if op.Status != "running" {
-			t.Errorf("operator %s: expected status=running, got %s", op.Name, op.Status)
-		}
+	if len(result.Operators) != 3 {
+		t.Fatalf("expected 3 operators, got %d", len(result.Operators))
 	}
 
 	// Verify cert-manager was detected with its version.
 	cm := result.Operators[0]
 	if cm.Name != "cert-manager" {
 		t.Errorf("expected first operator name=cert-manager, got %s", cm.Name)
+	}
+	if cm.Status != "running" {
+		t.Errorf("cert-manager: expected status=running, got %s", cm.Status)
 	}
 	if cm.Version == "" {
 		t.Error("cert-manager version should not be empty")
@@ -112,8 +109,20 @@ func TestGPUStage_Detect_Found(t *testing.T) {
 	if gpu.Name != "gpu-operator" {
 		t.Errorf("expected second operator name=gpu-operator, got %s", gpu.Name)
 	}
+	if gpu.Status != "running" {
+		t.Errorf("gpu-operator: expected status=running, got %s", gpu.Status)
+	}
 	if gpu.Version == "" {
 		t.Error("gpu-operator version should not be empty")
+	}
+
+	// Verify kai-scheduler was detected as not-installed (no deployment in fake client).
+	kai := result.Operators[2]
+	if kai.Name != "kai-scheduler" {
+		t.Errorf("expected third operator name=kai-scheduler, got %s", kai.Name)
+	}
+	if kai.Status != "not-installed" {
+		t.Errorf("kai-scheduler: expected status=not-installed, got %s", kai.Status)
 	}
 }
 
@@ -127,14 +136,19 @@ func TestGPUStage_Detect_NotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Detect returned error: %v", err)
 	}
-	if len(result.Operators) != 2 {
-		t.Fatalf("expected 2 operators, got %d", len(result.Operators))
+	if len(result.Operators) != 3 {
+		t.Fatalf("expected 3 operators, got %d", len(result.Operators))
 	}
 
 	for _, op := range result.Operators {
 		if op.Status != "not-installed" {
 			t.Errorf("operator %s: expected status=not-installed, got %s", op.Name, op.Status)
 		}
+	}
+
+	// Verify kai-scheduler is the third operator.
+	if result.Operators[2].Name != "kai-scheduler" {
+		t.Errorf("expected third operator name=kai-scheduler, got %s", result.Operators[2].Name)
 	}
 }
 

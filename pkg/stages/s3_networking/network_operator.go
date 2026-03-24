@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	networkOperatorRepo      = "https://helm.ngc.nvidia.com/nvidia"
-	networkOperatorRepoName  = "nvidia"
 	networkOperatorChart     = "nvidia/network-operator"
 	networkOperatorNamespace = "nvidia-network-operator"
 	networkOperatorRelease   = "network-operator"
@@ -23,7 +21,9 @@ const (
 // Values are loaded from embedded assets (common + fabric overlay) and merged
 // with any user-provided site overrides.
 func installNetworkOperator(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, printer *output.Printer) error {
-	if err := hc.AddRepo(networkOperatorRepoName, networkOperatorRepo); err != nil {
+	printer.Debugf("installing %s", networkOperatorRelease)
+
+	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
 		return fmt.Errorf("adding network-operator repo: %w", err)
 	}
 

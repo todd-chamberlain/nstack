@@ -19,8 +19,10 @@ const (
 
 // installDOCA deploys the NVIDIA DOCA Platform Framework via its Helm chart.
 // DOCA is only installed when DPU hardware is detected in the site config.
-func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, printer *output.Printer) error {
-	if err := hc.AddRepo(networkOperatorRepoName, networkOperatorRepo); err != nil {
+func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *config.Profile, printer *output.Printer) error {
+	printer.Debugf("installing %s", docaRelease)
+
+	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
 		return fmt.Errorf("adding nvidia repo for doca: %w", err)
 	}
 

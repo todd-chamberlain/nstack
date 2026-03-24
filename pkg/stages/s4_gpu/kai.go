@@ -13,8 +13,6 @@ import (
 )
 
 const (
-	kaiSchedulerRepo      = "https://helm.ngc.nvidia.com/nvidia"
-	kaiSchedulerRepoName  = "nvidia"
 	kaiSchedulerChart     = "nvidia/kai-scheduler"
 	kaiSchedulerNamespace = "kai-scheduler"
 	kaiSchedulerRelease   = "kai-scheduler"
@@ -34,7 +32,9 @@ func isKAISchedulerInstalled(ctx context.Context, kc *kube.Client) (bool, string
 // installKAIScheduler deploys the NVIDIA KAI Scheduler for GPU-aware
 // multi-tenant workload scheduling.
 func installKAIScheduler(ctx context.Context, hc *helm.Client, overrides map[string]interface{}, printer *output.Printer) error {
-	if err := hc.AddRepo(kaiSchedulerRepoName, kaiSchedulerRepo); err != nil {
+	printer.Debugf("installing %s", kaiSchedulerRelease)
+
+	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
 		return fmt.Errorf("adding nvidia repo: %w", err)
 	}
 

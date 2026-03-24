@@ -20,6 +20,8 @@ const (
 
 // installCertManager deploys cert-manager via its Helm chart.
 func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Printer) error {
+	printer.Debugf("installing %s", certManagerRelease)
+
 	if err := hc.AddRepo(certManagerRepoName, certManagerRepo); err != nil {
 		return fmt.Errorf("adding cert-manager repo: %w", err)
 	}

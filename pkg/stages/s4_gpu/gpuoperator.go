@@ -11,8 +11,6 @@ import (
 )
 
 const (
-	gpuOperatorRepo      = "https://helm.ngc.nvidia.com/nvidia"
-	gpuOperatorRepoName  = "nvidia"
 	gpuOperatorChart     = "nvidia/gpu-operator"
 	gpuOperatorNamespace = "gpu-operator"
 	gpuOperatorRelease   = "gpu-operator"
@@ -23,7 +21,9 @@ const (
 // Values are loaded from embedded assets (common + distribution overlay)
 // and merged with any user-provided site overrides.
 func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Profile, overrides map[string]interface{}, printer *output.Printer) error {
-	if err := hc.AddRepo(gpuOperatorRepoName, gpuOperatorRepo); err != nil {
+	printer.Debugf("installing %s", gpuOperatorRelease)
+
+	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
 		return fmt.Errorf("adding gpu-operator repo: %w", err)
 	}
 

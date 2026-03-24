@@ -72,6 +72,23 @@ func (s *GPUStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectR
 		})
 	}
 
+	// Check KAI Scheduler
+	kaiInstalled, kaiVersion := isKAISchedulerInstalled(ctx, kc)
+	if kaiInstalled {
+		result.Operators = append(result.Operators, engine.DetectedOperator{
+			Name:      "kai-scheduler",
+			Version:   kaiVersion,
+			Namespace: kaiSchedulerNamespace,
+			Status:    "running",
+		})
+	} else {
+		result.Operators = append(result.Operators, engine.DetectedOperator{
+			Name:      "kai-scheduler",
+			Namespace: kaiSchedulerNamespace,
+			Status:    "not-installed",
+		})
+	}
+
 	return result, nil
 }
 
@@ -202,8 +219,7 @@ func (s *GPUStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, 
 					printer.ComponentSkipped(idx, total, comp.Name, "", "kai-scheduler not requested in site overrides")
 					continue
 				}
-				var overrides map[string]interface{}
-				overrides = site.Overrides["kai-scheduler"]
+				overrides := site.Overrides["kai-scheduler"]
 				err = installKAIScheduler(ctx, hc, overrides, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)
