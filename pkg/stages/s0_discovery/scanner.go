@@ -2,9 +2,12 @@ package s0_discovery
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
+	"net/http"
 	"sync"
+	"time"
 )
 
 // ScanResult holds discovered BMC endpoints and their hardware inventory.
@@ -55,6 +58,17 @@ func ScanNetwork(ctx context.Context, cidr string, credentials BMCCredentials, c
 		concurrency = 32
 	}
 
+	// Create a single HTTP client shared across all Redfish probes to avoid
+	// leaking transports/connection pools (one per goroutine) on large scans.
+	httpClient := &http.Client{
+		Timeout: 10 * time.Second,
+		Transport: &http.Transport{
+			TLSClientConfig:    &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // BMCs use self-signed certs
+			MaxIdleConnsPerHost: 2,
+		},
+	}
+	defer httpClient.CloseIdleConnections()
+
 	result := &ScanResult{}
 	var mu sync.Mutex
 	sem := make(chan struct{}, concurrency)
@@ -72,7 +86,7 @@ func ScanNetwork(ctx context.Context, cidr string, credentials BMCCredentials, c
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			node, probeErr := probeHost(ctx, addr, credentials)
+			node, probeErr := probeHost(ctx, addr, credentials, httpClient)
 			if probeErr != nil {
 				return // Host not reachable or not a BMC, skip silently
 			}
@@ -88,9 +102,9 @@ func ScanNetwork(ctx context.Context, cidr string, credentials BMCCredentials, c
 }
 
 // probeHost attempts to connect to a host's BMC via Redfish (port 443) then IPMI (port 623).
-func probeHost(ctx context.Context, addr string, creds BMCCredentials) (*DiscoveredNode, error) {
+func probeHost(ctx context.Context, addr string, creds BMCCredentials, httpClient *http.Client) (*DiscoveredNode, error) {
 	// Try Redfish first (HTTPS on port 443)
-	node, err := probeRedfish(ctx, addr, creds)
+	node, err := probeRedfish(ctx, addr, creds, httpClient)
 	if err == nil {
 		return node, nil
 	}
@@ -116,7 +130,8 @@ func expandCIDR(cidr string) ([]string, error) {
 		ips = append(ips, ip.String())
 	}
 
-	// Remove network and broadcast addresses for /24 and larger
+	// For /31 point-to-point links (RFC 3021), both IPs are usable hosts.
+	// For all other prefixes, strip network and broadcast addresses.
 	if len(ips) > 2 {
 		ips = ips[1 : len(ips)-1]
 	}

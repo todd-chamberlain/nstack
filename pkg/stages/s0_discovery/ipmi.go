@@ -13,7 +13,8 @@ import (
 func probeIPMI(ctx context.Context, addr string, creds BMCCredentials) (*DiscoveredNode, error) {
 	_ = creds // IPMI presence ping does not require authentication
 
-	// Check if IPMI port 623 is reachable (UDP)
+	// Open a UDP socket to the BMC. Note: UDP dial always succeeds locally;
+	// actual BMC detection happens via the ASF Presence Ping below.
 	conn, err := net.DialTimeout("udp", addr+":623", 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("IPMI port 623 not reachable on %s", addr)

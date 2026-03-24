@@ -2,7 +2,6 @@ package s0_discovery
 
 import (
 	"context"
-	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,23 +11,18 @@ import (
 	"time"
 )
 
+// maxRedfishBody is the maximum response body size we'll read from a Redfish BMC (1 MB).
+const maxRedfishBody = 1 << 20
+
 // probeRedfish attempts to connect to a Redfish BMC at the given address.
 // It queries /redfish/v1 for system information including CPU, memory, and PCI devices (GPUs/NICs).
-func probeRedfish(ctx context.Context, addr string, creds BMCCredentials) (*DiscoveredNode, error) {
+func probeRedfish(ctx context.Context, addr string, creds BMCCredentials, httpClient *http.Client) (*DiscoveredNode, error) {
 	// First check if port 443 is open (fast TCP check)
 	conn, err := net.DialTimeout("tcp", addr+":443", 2*time.Second)
 	if err != nil {
 		return nil, fmt.Errorf("port 443 not open on %s", addr)
 	}
 	conn.Close()
-
-	// Create HTTPS client that skips TLS verification (BMCs use self-signed certs)
-	client := &http.Client{
-		Timeout: 10 * time.Second,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true}, //nolint:gosec // BMCs use self-signed certs
-		},
-	}
 
 	baseURL := fmt.Sprintf("https://%s", addr)
 
@@ -41,11 +35,13 @@ func probeRedfish(ctx context.Context, addr string, creds BMCCredentials) (*Disc
 		req.SetBasicAuth(creds.Username, creds.Password)
 	}
 
-	resp, err := client.Do(req)
+	resp, err := httpClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("redfish probe failed on %s: %w", addr, err)
 	}
-	defer resp.Body.Close()
+	// Drain the root response body (not used) so the connection can be reused.
+	io.Copy(io.Discard, resp.Body) //nolint:errcheck
+	resp.Body.Close()
 
 	if resp.StatusCode != 200 {
 		return nil, fmt.Errorf("redfish returned %d on %s", resp.StatusCode, addr)
@@ -64,9 +60,9 @@ func probeRedfish(ctx context.Context, addr string, creds BMCCredentials) (*Disc
 	if creds.Username != "" {
 		sysReq.SetBasicAuth(creds.Username, creds.Password)
 	}
-	sysResp, err := client.Do(sysReq)
+	sysResp, err := httpClient.Do(sysReq)
 	if err == nil && sysResp.StatusCode == 200 {
-		body, _ := io.ReadAll(sysResp.Body)
+		body, _ := io.ReadAll(io.LimitReader(sysResp.Body, maxRedfishBody))
 		sysResp.Body.Close()
 		var system redfishSystem
 		if json.Unmarshal(body, &system) == nil {
@@ -87,13 +83,16 @@ func probeRedfish(ctx context.Context, addr string, creds BMCCredentials) (*Disc
 	if creds.Username != "" {
 		pciReq.SetBasicAuth(creds.Username, creds.Password)
 	}
-	pciResp, err := client.Do(pciReq)
+	pciResp, err := httpClient.Do(pciReq)
 	if err == nil && pciResp.StatusCode == 200 {
-		body, _ := io.ReadAll(pciResp.Body)
+		body, _ := io.ReadAll(io.LimitReader(pciResp.Body, maxRedfishBody))
 		pciResp.Body.Close()
 		var pciCollection redfishCollection
 		if json.Unmarshal(body, &pciCollection) == nil {
 			for _, member := range pciCollection.Members {
+				if !strings.HasPrefix(member.ID, "/") || strings.Contains(member.ID, "://") {
+					continue // Skip potentially malicious or malformed paths
+				}
 				devReq, devReqErr := http.NewRequestWithContext(ctx, "GET", baseURL+member.ID, nil)
 				if devReqErr != nil {
 					continue
@@ -101,14 +100,14 @@ func probeRedfish(ctx context.Context, addr string, creds BMCCredentials) (*Disc
 				if creds.Username != "" {
 					devReq.SetBasicAuth(creds.Username, creds.Password)
 				}
-				devResp, devErr := client.Do(devReq)
+				devResp, devErr := httpClient.Do(devReq)
 				if devErr != nil || devResp.StatusCode != 200 {
 					if devResp != nil {
 						devResp.Body.Close()
 					}
 					continue
 				}
-				devBody, _ := io.ReadAll(devResp.Body)
+				devBody, _ := io.ReadAll(io.LimitReader(devResp.Body, maxRedfishBody))
 				devResp.Body.Close()
 
 				var device redfishPCIeDevice

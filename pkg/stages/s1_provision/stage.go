@@ -251,6 +251,17 @@ func (s *ProvisionStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.
 		printer.ComponentSkipped(1, total, "baremetalhosts", "", "no dynamic client")
 	}
 
+	// Delete BMC credential secrets managed by nstack.
+	cs := kc.Clientset()
+	secrets, _ := cs.CoreV1().Secrets(metal3Namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/managed-by=nstack",
+	})
+	if secrets != nil {
+		for _, s := range secrets.Items {
+			_ = cs.CoreV1().Secrets(metal3Namespace).Delete(ctx, s.Name, metav1.DeleteOptions{})
+		}
+	}
+
 	// Uninstall Metal3 Baremetal Operator.
 	installed, version, err := hc.IsInstalled(metal3Release, metal3Namespace)
 	if err != nil {

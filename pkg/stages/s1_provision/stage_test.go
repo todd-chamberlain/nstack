@@ -106,14 +106,20 @@ func TestFormatBMCAddress_Nil(t *testing.T) {
 
 func TestResolveCredentials_EnvVar(t *testing.T) {
 	t.Setenv("TEST_BMC_CREDS", "admin:pass123")
-	user, pass := resolveCredentials("env://TEST_BMC_CREDS")
+	user, pass, err := resolveCredentials("env://TEST_BMC_CREDS")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if user != "admin" || pass != "pass123" {
 		t.Errorf("resolveCredentials(env://) = (%q, %q), want (admin, pass123)", user, pass)
 	}
 }
 
 func TestResolveCredentials_Plain(t *testing.T) {
-	user, pass := resolveCredentials("root:password")
+	user, pass, err := resolveCredentials("root:password")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if user != "root" || pass != "password" {
 		t.Errorf("resolveCredentials(plain) = (%q, %q), want (root, password)", user, pass)
 	}
@@ -125,14 +131,34 @@ func TestResolveCredentials_File(t *testing.T) {
 	if err := os.WriteFile(credFile, []byte("user:secret\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	user, pass := resolveCredentials("file://" + credFile)
+	user, pass, err := resolveCredentials("file://" + credFile)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if user != "user" || pass != "secret" {
 		t.Errorf("resolveCredentials(file://) = (%q, %q), want (user, secret)", user, pass)
 	}
 }
 
+func TestResolveCredentials_FileMissing(t *testing.T) {
+	_, _, err := resolveCredentials("file:///nonexistent/path/creds")
+	if err == nil {
+		t.Fatal("expected error for missing credential file, got nil")
+	}
+}
+
+func TestResolveCredentials_Empty(t *testing.T) {
+	_, _, err := resolveCredentials("")
+	if err == nil {
+		t.Fatal("expected error for empty credentials, got nil")
+	}
+}
+
 func TestResolveCredentials_SingleValue(t *testing.T) {
-	user, pass := resolveCredentials("mypassword")
+	user, pass, err := resolveCredentials("mypassword")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if user != "admin" || pass != "mypassword" {
 		t.Errorf("resolveCredentials(single) = (%q, %q), want (admin, mypassword)", user, pass)
 	}

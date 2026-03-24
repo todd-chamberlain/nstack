@@ -90,24 +90,35 @@ func createBMCSecret(ctx context.Context, kc *kube.Client, node config.Node, nam
 
 	cs := kc.Clientset()
 
+	// Resolve credentials from node BMC config.
+	var username, password string
+	if node.BMC != nil && node.BMC.Credentials != "" {
+		var err error
+		username, password, err = resolveCredentials(node.BMC.Credentials)
+		if err != nil {
+			return fmt.Errorf("resolving BMC credentials for %s: %w", node.Name, err)
+		}
+	} else {
+		return fmt.Errorf("BMC credentials for %s: not configured (set node.bmc.credentials)", node.Name)
+	}
+
+	if password == "" {
+		return fmt.Errorf("BMC credentials for %s: password is empty (configure node.bmc.credentials)", node.Name)
+	}
+
 	secret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      node.Name + "-bmc-credentials",
 			Namespace: namespace,
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "nstack",
+			},
 		},
 		Type: corev1.SecretTypeOpaque,
 		StringData: map[string]string{
-			"username": "admin",
-			"password": "",
+			"username": username,
+			"password": password,
 		},
-	}
-
-	// Extract credentials from node BMC config.
-	// The credentials field supports: env://VAR, file:///path, or plain user:pass text.
-	if node.BMC != nil && node.BMC.Credentials != "" {
-		username, password := resolveCredentials(node.BMC.Credentials)
-		secret.StringData["username"] = username
-		secret.StringData["password"] = password
 	}
 
 	_, err := cs.CoreV1().Secrets(namespace).Create(ctx, secret, metav1.CreateOptions{})
@@ -124,31 +135,35 @@ func createBMCSecret(ctx context.Context, kc *kube.Client, node config.Node, nam
 
 // resolveCredentials resolves a credential reference.
 // Supports: "env://VAR_NAME", "file:///path", "user:pass", or a single password value.
-func resolveCredentials(ref string) (username, password string) {
+func resolveCredentials(ref string) (username, password string, err error) {
+	if ref == "" {
+		return "", "", fmt.Errorf("BMC credentials not configured")
+	}
 	if strings.HasPrefix(ref, "env://") {
 		envVar := strings.TrimPrefix(ref, "env://")
 		val := os.Getenv(envVar)
 		parts := strings.SplitN(val, ":", 2)
 		if len(parts) == 2 {
-			return parts[0], parts[1]
+			return parts[0], parts[1], nil
 		}
-		return "admin", val
+		return "admin", val, nil
 	}
 	if strings.HasPrefix(ref, "file://") {
 		path := strings.TrimPrefix(ref, "file://")
-		data, err := os.ReadFile(path)
-		if err == nil {
-			parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
-			if len(parts) == 2 {
-				return parts[0], parts[1]
-			}
+		data, readErr := os.ReadFile(path)
+		if readErr != nil {
+			return "", "", fmt.Errorf("reading credentials file %s: %w", path, readErr)
 		}
-		return "admin", ""
+		parts := strings.SplitN(strings.TrimSpace(string(data)), ":", 2)
+		if len(parts) == 2 {
+			return parts[0], parts[1], nil
+		}
+		return "admin", strings.TrimSpace(string(data)), nil
 	}
 	// Plain user:pass format.
 	parts := strings.SplitN(ref, ":", 2)
 	if len(parts) == 2 {
-		return parts[0], parts[1]
+		return parts[0], parts[1], nil
 	}
-	return "admin", ref
+	return "admin", ref, nil
 }
