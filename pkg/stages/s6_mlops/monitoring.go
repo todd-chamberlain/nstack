@@ -43,11 +43,10 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 	}
 
 	// 5. Install or upgrade the chart.
-	hc.SetNamespace(monitoringNS)
-
 	if err := hc.UpgradeOrInstall(
 		monitoringRelease,
 		prometheusChart,
+		monitoringNS,
 		mergedValues,
 		helm.WithVersion(monitoringVersion),
 		helm.WithCreateNamespace(),

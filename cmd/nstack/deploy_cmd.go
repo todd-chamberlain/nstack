@@ -58,6 +58,9 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	}
 
 	// Handle --set flags by merging into site overrides.
+	// Keys with a component prefix (e.g. "gpu-operator.driver.enabled=false") are
+	// routed to that component's override map. Keys without a recognized component
+	// prefix are applied to ALL components as global overrides.
 	if len(setValues) > 0 {
 		parsed, err := helm.ParseSetValues(setValues)
 		if err != nil {
@@ -66,8 +69,18 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		if site.Overrides == nil {
 			site.Overrides = make(map[string]map[string]interface{})
 		}
-		// Merge parsed values into a general "cli" overrides bucket.
-		site.Overrides["cli"] = parsed
+		for key, val := range parsed {
+			if subMap, isMap := val.(map[string]interface{}); isMap {
+				existing := site.Overrides[key]
+				if existing == nil {
+					existing = make(map[string]interface{})
+				}
+				for k, v := range subMap {
+					existing[k] = v
+				}
+				site.Overrides[key] = existing
+			}
+		}
 	}
 
 	opts := engine.RunOpts{

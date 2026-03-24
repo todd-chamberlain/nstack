@@ -52,7 +52,7 @@ func createClients(site *config.Site) (*kube.Client, *helm.Client, error) {
 	if err != nil {
 		return nil, nil, fmt.Errorf("creating kube client: %w", err)
 	}
-	hc := helm.NewClient(site.Kubeconfig, "default")
+	hc := helm.NewClient(site.Kubeconfig)
 	return kc, hc, nil
 }
 

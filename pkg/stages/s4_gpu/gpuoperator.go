@@ -37,11 +37,10 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Pr
 		return fmt.Errorf("loading gpu-operator values: %w", err)
 	}
 
-	hc.SetNamespace(gpuOperatorNamespace)
-
 	if err := hc.UpgradeOrInstall(
 		gpuOperatorRelease,
 		gpuOperatorChart,
+		gpuOperatorNamespace,
 		mergedValues,
 		helm.WithVersion(gpuOperatorVersion),
 		helm.WithCreateNamespace(),

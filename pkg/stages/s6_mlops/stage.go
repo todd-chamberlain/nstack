@@ -53,8 +53,8 @@ func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 	}
 
 	// Check kube-prometheus-stack via Helm release.
-	hc := helm.NewClient("", monitoringNS)
-	installed, version, _ := hc.IsInstalled(monitoringRelease)
+	hc := helm.NewClient(kc.Kubeconfig())
+	installed, version, _ := hc.IsInstalled(monitoringRelease, monitoringNS)
 	if installed {
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "kube-prometheus-stack",
@@ -112,8 +112,8 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	}
 
 	// Plan monitoring: check if the Helm release exists.
-	hc := helm.NewClient("", monitoringNS)
-	monInstalled, monVersion, _ := hc.IsInstalled(monitoringRelease)
+	hc := helm.NewClient(kc.Kubeconfig())
+	monInstalled, monVersion, _ := hc.IsInstalled(monitoringRelease, monitoringNS)
 	if monInstalled {
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "monitoring",
@@ -294,14 +294,13 @@ func (s *MLOpsStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 	totalComponents := 2
 
 	// 1. Uninstall kube-prometheus-stack.
-	hc.SetNamespace(monitoringNS)
-	installed, version, err := hc.IsInstalled(monitoringRelease)
+	installed, version, err := hc.IsInstalled(monitoringRelease, monitoringNS)
 	if err != nil {
 		return fmt.Errorf("checking monitoring: %w", err)
 	}
 	if installed {
 		printer.ComponentStart(1, totalComponents, "monitoring", version, "destroying")
-		err = hc.Uninstall(monitoringRelease)
+		err = hc.Uninstall(monitoringRelease, monitoringNS)
 		printer.ComponentDone("monitoring", err)
 		if err != nil {
 			return err

@@ -21,7 +21,7 @@ const (
 func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, printer *output.Printer) error {
 	// Run helm dependency update on the nodesets chart.
 	chartDir := filepath.Join(repoDir, "helm", "nodesets")
-	if err := helmDepUpdate(ctx, chartDir, printer); err != nil {
+	if err := helmDepUpdate(chartDir); err != nil {
 		// nodesets may not have dependencies; log but don't fail.
 		printer.Debugf("helm dep update for nodesets (non-fatal): %v", err)
 	}
@@ -40,11 +40,10 @@ func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, pr
 		return fmt.Errorf("loading nodesets values: %w", err)
 	}
 
-	hc.SetNamespace(slurmNamespace)
-
 	if err := hc.UpgradeOrInstall(
 		nodesetsRelease,
 		chartDir, // local chart path
+		slurmNamespace,
 		mergedValues,
 		helm.WithTimeout(10*time.Minute),
 	); err != nil {

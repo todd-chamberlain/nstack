@@ -24,8 +24,6 @@ func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Pr
 		return fmt.Errorf("adding cert-manager repo: %w", err)
 	}
 
-	hc.SetNamespace(certManagerNamespace)
-
 	values := map[string]interface{}{
 		"installCRDs": true,
 	}
@@ -33,6 +31,7 @@ func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Pr
 	if err := hc.UpgradeOrInstall(
 		certManagerRelease,
 		certManagerChart,
+		certManagerNamespace,
 		values,
 		helm.WithVersion(certManagerVersion),
 		helm.WithCreateNamespace(),

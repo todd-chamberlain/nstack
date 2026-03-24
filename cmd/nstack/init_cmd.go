@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -102,6 +103,20 @@ func writeConfig(siteName, profile, kubeconfig string) error {
 	}
 
 	configPath := filepath.Join(configDir, "config.yaml")
+
+	// Guard against silently overwriting an existing config file.
+	if _, err := os.Stat(configPath); err == nil {
+		if !viper.GetBool("yes") {
+			fmt.Printf("Config file %s already exists. Overwrite? [y/N] ", configPath)
+			var response string
+			fmt.Scanln(&response)
+			if strings.ToLower(response) != "y" {
+				fmt.Println("Aborted.")
+				return nil
+			}
+		}
+	}
+
 	if err := os.WriteFile(configPath, data, 0644); err != nil {
 		return fmt.Errorf("writing config file: %w", err)
 	}

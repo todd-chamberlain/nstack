@@ -12,6 +12,7 @@ type Client struct {
 	clientset     kubernetes.Interface
 	dynamicClient dynamic.Interface
 	restConfig    *rest.Config
+	kubeconfig    string
 }
 
 // NewClient creates a Kubernetes client from the given kubeconfig path.
@@ -43,6 +44,7 @@ func NewClient(kubeconfig string) (*Client, error) {
 		clientset:     cs,
 		dynamicClient: dc,
 		restConfig:    cfg,
+		kubeconfig:    kubeconfig,
 	}, nil
 }
 
@@ -54,6 +56,11 @@ func NewClientFromInterfaces(cs kubernetes.Interface, dc dynamic.Interface, rc *
 		dynamicClient: dc,
 		restConfig:    rc,
 	}
+}
+
+// Kubeconfig returns the kubeconfig path used to create this client.
+func (c *Client) Kubeconfig() string {
+	return c.kubeconfig
 }
 
 // Clientset returns the typed Kubernetes clientset.

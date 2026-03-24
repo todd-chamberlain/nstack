@@ -21,7 +21,7 @@ const (
 func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, printer *output.Printer) error {
 	// Run helm dependency update on the slurm-cluster chart.
 	chartDir := filepath.Join(repoDir, "helm", "slurm-cluster")
-	if err := helmDepUpdate(ctx, chartDir, printer); err != nil {
+	if err := helmDepUpdate(chartDir); err != nil {
 		return fmt.Errorf("helm dep update for slurm-cluster: %w", err)
 	}
 
@@ -39,11 +39,10 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 		return fmt.Errorf("loading slurm-cluster values: %w", err)
 	}
 
-	hc.SetNamespace(slurmNamespace)
-
 	if err := hc.UpgradeOrInstall(
 		slurmClusterRelease,
 		chartDir, // local chart path
+		slurmNamespace,
 		mergedValues,
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(15*time.Minute),

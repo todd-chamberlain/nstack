@@ -2,7 +2,6 @@ package kube
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -56,13 +55,3 @@ func (c *Client) EnsureNamespace(ctx context.Context, namespace string) error {
 	return nil
 }
 
-// patchScalePayload is a helper for building JSON merge patch payloads for scale operations.
-// It is exported for potential reuse in other packages.
-func patchScalePayload(replicas int32) ([]byte, error) {
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"replicas": replicas,
-		},
-	}
-	return json.Marshal(patch)
-}

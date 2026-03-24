@@ -263,14 +263,13 @@ func (s *GPUStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageSt
 // The GPU Operator is removed first since it may depend on cert-manager CRDs.
 func (s *GPUStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
 	// Uninstall GPU Operator first.
-	hc.SetNamespace(gpuOperatorNamespace)
-	installed, version, err := hc.IsInstalled(gpuOperatorRelease)
+	installed, version, err := hc.IsInstalled(gpuOperatorRelease, gpuOperatorNamespace)
 	if err != nil {
 		return fmt.Errorf("checking gpu-operator: %w", err)
 	}
 	if installed {
 		printer.ComponentStart(1, 2, "gpu-operator", version, "destroying")
-		err = hc.Uninstall(gpuOperatorRelease)
+		err = hc.Uninstall(gpuOperatorRelease, gpuOperatorNamespace)
 		printer.ComponentDone("gpu-operator", err)
 		if err != nil {
 			return err
@@ -280,14 +279,13 @@ func (s *GPUStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client
 	}
 
 	// Uninstall cert-manager.
-	hc.SetNamespace(certManagerNamespace)
-	installed, version, err = hc.IsInstalled(certManagerRelease)
+	installed, version, err = hc.IsInstalled(certManagerRelease, certManagerNamespace)
 	if err != nil {
 		return fmt.Errorf("checking cert-manager: %w", err)
 	}
 	if installed {
 		printer.ComponentStart(2, 2, "cert-manager", version, "destroying")
-		err = hc.Uninstall(certManagerRelease)
+		err = hc.Uninstall(certManagerRelease, certManagerNamespace)
 		printer.ComponentDone("cert-manager", err)
 		if err != nil {
 			return err

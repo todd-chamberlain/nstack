@@ -18,7 +18,6 @@ import (
 type Client struct {
 	settings   *cli.EnvSettings
 	kubeconfig string
-	namespace  string
 }
 
 // installOpts holds optional configuration for UpgradeOrInstall.
@@ -60,32 +59,29 @@ func WithWait() Option {
 	}
 }
 
-// NewClient creates a new Helm client configured for the given kubeconfig and namespace.
-func NewClient(kubeconfig, namespace string) *Client {
+// NewClient creates a new Helm client configured for the given kubeconfig.
+func NewClient(kubeconfig string) *Client {
 	settings := cli.New()
 	if kubeconfig != "" {
 		settings.KubeConfig = kubeconfig
 	}
-	if namespace != "" {
-		settings.SetNamespace(namespace)
-	}
 	return &Client{
 		settings:   settings,
 		kubeconfig: kubeconfig,
-		namespace:  namespace,
 	}
 }
 
-// SetNamespace changes the target namespace for subsequent operations.
-func (c *Client) SetNamespace(ns string) {
-	c.namespace = ns
-	c.settings.SetNamespace(ns)
-}
-
-// actionConfig builds an action.Configuration bound to the client's kubeconfig and namespace.
-func (c *Client) actionConfig() (*action.Configuration, error) {
+// actionConfig builds an action.Configuration bound to the client's kubeconfig and the given namespace.
+func (c *Client) actionConfig(namespace string) (*action.Configuration, error) {
+	settings := cli.New()
+	if c.kubeconfig != "" {
+		settings.KubeConfig = c.kubeconfig
+	}
+	if namespace != "" {
+		settings.SetNamespace(namespace)
+	}
 	cfg := new(action.Configuration)
-	err := cfg.Init(c.settings.RESTClientGetter(), c.namespace, os.Getenv("HELM_DRIVER"), log.Printf)
+	err := cfg.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
 	if err != nil {
 		return nil, fmt.Errorf("initializing Helm configuration: %w", err)
 	}
@@ -121,7 +117,7 @@ func (c *Client) AddRepo(name, url string) error {
 
 // UpgradeOrInstall installs a chart if the release does not exist, or upgrades it
 // if it does. This is the idempotent install-or-upgrade pattern used by nstack.
-func (c *Client) UpgradeOrInstall(releaseName, chartRef string, values map[string]interface{}, opts ...Option) error {
+func (c *Client) UpgradeOrInstall(releaseName, chartRef, namespace string, values map[string]interface{}, opts ...Option) error {
 	o := &installOpts{
 		timeout: 5 * time.Minute,
 	}
@@ -129,7 +125,7 @@ func (c *Client) UpgradeOrInstall(releaseName, chartRef string, values map[strin
 		fn(o)
 	}
 
-	cfg, err := c.actionConfig()
+	cfg, err := c.actionConfig(namespace)
 	if err != nil {
 		return err
 	}
@@ -141,16 +137,16 @@ func (c *Client) UpgradeOrInstall(releaseName, chartRef string, values map[strin
 	releaseExists := err == nil
 
 	if !releaseExists {
-		return c.installRelease(cfg, releaseName, chartRef, values, o)
+		return c.installRelease(cfg, releaseName, chartRef, namespace, values, o)
 	}
-	return c.upgradeRelease(cfg, releaseName, chartRef, values, o)
+	return c.upgradeRelease(cfg, releaseName, chartRef, namespace, values, o)
 }
 
 // installRelease performs a fresh Helm install.
-func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef string, values map[string]interface{}, o *installOpts) error {
+func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
 	install := action.NewInstall(cfg)
 	install.ReleaseName = releaseName
-	install.Namespace = c.namespace
+	install.Namespace = namespace
 	install.CreateNamespace = o.createNamespace
 	install.Wait = o.wait
 	install.Timeout = o.timeout
@@ -181,9 +177,9 @@ func (c *Client) installRelease(cfg *action.Configuration, releaseName, chartRef
 }
 
 // upgradeRelease performs a Helm upgrade on an existing release.
-func (c *Client) upgradeRelease(cfg *action.Configuration, releaseName, chartRef string, values map[string]interface{}, o *installOpts) error {
+func (c *Client) upgradeRelease(cfg *action.Configuration, releaseName, chartRef, namespace string, values map[string]interface{}, o *installOpts) error {
 	upgrade := action.NewUpgrade(cfg)
-	upgrade.Namespace = c.namespace
+	upgrade.Namespace = namespace
 	upgrade.Wait = o.wait
 	upgrade.Timeout = o.timeout
 
@@ -213,8 +209,8 @@ func (c *Client) upgradeRelease(cfg *action.Configuration, releaseName, chartRef
 }
 
 // Uninstall removes a Helm release.
-func (c *Client) Uninstall(releaseName string) error {
-	cfg, err := c.actionConfig()
+func (c *Client) Uninstall(releaseName, namespace string) error {
+	cfg, err := c.actionConfig(namespace)
 	if err != nil {
 		return err
 	}
@@ -228,8 +224,8 @@ func (c *Client) Uninstall(releaseName string) error {
 }
 
 // GetRelease retrieves information about a deployed release.
-func (c *Client) GetRelease(releaseName string) (*release.Release, error) {
-	cfg, err := c.actionConfig()
+func (c *Client) GetRelease(releaseName, namespace string) (*release.Release, error) {
+	cfg, err := c.actionConfig(namespace)
 	if err != nil {
 		return nil, err
 	}
@@ -243,8 +239,8 @@ func (c *Client) GetRelease(releaseName string) (*release.Release, error) {
 }
 
 // IsInstalled checks whether a release exists and returns its chart version.
-func (c *Client) IsInstalled(releaseName string) (installed bool, version string, err error) {
-	cfg, err := c.actionConfig()
+func (c *Client) IsInstalled(releaseName, namespace string) (installed bool, version string, err error) {
+	cfg, err := c.actionConfig(namespace)
 	if err != nil {
 		return false, "", err
 	}

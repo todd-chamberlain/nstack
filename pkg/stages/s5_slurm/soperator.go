@@ -3,10 +3,15 @@ package s5_slurm
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
+
+	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/downloader"
+	"helm.sh/helm/v3/pkg/getter"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
@@ -93,7 +98,7 @@ func installSoperatorCRDs(ctx context.Context, kc *kube.Client, repoDir string, 
 func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, profile *config.Profile, repoDir string, overrides map[string]interface{}, printer *output.Printer) error {
 	// Run helm dependency update on the soperator chart.
 	chartDir := filepath.Join(repoDir, "helm", "soperator")
-	if err := helmDepUpdate(ctx, chartDir, printer); err != nil {
+	if err := helmDepUpdate(chartDir); err != nil {
 		return fmt.Errorf("helm dep update for soperator: %w", err)
 	}
 
@@ -107,11 +112,10 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 		return fmt.Errorf("loading soperator values: %w", err)
 	}
 
-	hc.SetNamespace(soperatorNamespace)
-
 	if err := hc.UpgradeOrInstall(
 		soperatorRelease,
 		chartDir, // local chart path
+		soperatorNamespace,
 		mergedValues,
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(10*time.Minute),
@@ -122,17 +126,16 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 	return nil
 }
 
-// helmDepUpdate runs `helm dependency update` on a local chart directory.
-func helmDepUpdate(ctx context.Context, chartDir string, printer *output.Printer) error {
-	printer.Debugf("running helm dependency update in %s", chartDir)
-
-	cmd := exec.CommandContext(ctx, "helm", "dependency", "update", chartDir)
-	cmd.Stdout = os.Stderr
-	cmd.Stderr = os.Stderr
-
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("helm dependency update in %s: %w", chartDir, err)
+// helmDepUpdate runs a Helm dependency update on a local chart directory using the Helm SDK.
+func helmDepUpdate(chartDir string) error {
+	settings := cli.New()
+	man := &downloader.Manager{
+		ChartPath:        chartDir,
+		Getters:          getter.All(settings),
+		SkipUpdate:       false,
+		Out:              io.Discard,
+		RepositoryConfig: settings.RepositoryConfig,
+		RepositoryCache:  settings.RepositoryCache,
 	}
-
-	return nil
+	return man.Update()
 }
