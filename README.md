@@ -18,6 +18,9 @@ Or download a binary from [Releases](https://github.com/todd-chamberlain/nstack/
 # Initialize config
 nstack init --site lab --profile k3s-single --kubeconfig /etc/rancher/k3s/k3s.yaml
 
+# Discover bare metal hosts (optional)
+nstack detect --network 10.0.0.0/24 --bmc-user admin --bmc-pass secret
+
 # Detect cluster hardware
 nstack detect --site lab
 
@@ -32,6 +35,9 @@ nstack status --site lab
 
 | Stage | Components |
 |-------|-----------|
+| **0: Discovery** | IPMI/Redfish BMC scanning, GPU/NIC/DPU hardware inventory |
+| **1: Provisioning** | Metal3/Ironic bare metal OS install, BMH CRD management |
+| **2: Kubernetes** | K3s/kubeadm bootstrap, managed cluster validation |
 | **3: Networking** | NVIDIA Network Operator, Multus CNI, DOCA/DPU, WireGuard/Tailscale overlay |
 | **4: GPU Stack** | cert-manager, NVIDIA GPU Operator, KAI Scheduler |
 | **5: Slurm** | Nebius Soperator, Slurm cluster, NodeSets, K3s patches |
@@ -64,8 +70,8 @@ Profiles define environment-specific behavior. NStack ships with:
 ## Roadmap
 
 - **v0.1**: Stages 4-6, detection, profiles
-- **v0.2** (current): Stage 3 (NVIDIA Network Operator, Multus, DOCA/DPU, WireGuard/Tailscale overlay, KAI Scheduler)
-- **v0.3**: Stages 0-2 (IPMI discovery, Metal3 provisioning, K8s bootstrap)
+- **v0.2**: Stage 3 (NVIDIA Network Operator, Multus, DOCA/DPU, WireGuard/Tailscale overlay, KAI Scheduler)
+- **v0.3** (current): Stages 0-2 (IPMI/Redfish discovery, Metal3 provisioning, K8s bootstrap) — full bare-metal-to-workload pipeline complete
 
 ## License
 
