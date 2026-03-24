@@ -27,11 +27,10 @@ const (
 // For tailscale: deploys the Tailscale K8s Operator.
 func configureOverlay(ctx context.Context, kc *kube.Client, hc *helm.Client, site *config.Site, profile *config.Profile, printer *output.Printer) error {
 	overlayType := OverlayNone
-	if site != nil && site.Overlay != nil {
+	if site != nil && site.Overlay != nil && site.Overlay.Type != "" {
 		overlayType = site.Overlay.Type
-	}
-	if overlayType == "" {
-		overlayType = OverlayNone
+	} else if profile != nil && profile.Networking.Overlay != "" {
+		overlayType = profile.Networking.Overlay
 	}
 
 	switch overlayType {
