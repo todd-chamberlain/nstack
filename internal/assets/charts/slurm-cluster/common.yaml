@@ -1,0 +1,145 @@
+clusterType: gpu
+
+partitionConfiguration:
+  configType: default
+
+volumeSources:
+  - name: controller-spool
+    createPVC: false
+    persistentVolumeClaim:
+      claimName: controller-spool-pvc
+      readOnly: false
+  - name: jail
+    createPVC: false
+    persistentVolumeClaim:
+      claimName: jail-pvc
+      readOnly: false
+
+populateJail:
+  imagePullPolicy: IfNotPresent
+  appArmorProfile: unconfined
+  k8sNodeFilterName: gpu
+  overwrite: false
+
+slurmConfig:
+  defMemPerNode: 0
+  defCpuPerGPU: 4
+  completeWait: 5
+  taskPluginParam: ""
+  maxJobCount: 20000
+  minJobAge: 28800
+  messageTimeout: 60
+  topologyPlugin: "topology/tree"
+  topologyParam: "SwitchAsNodeRank"
+
+slurmNodes:
+  sssd:
+    enabled: false
+  accounting:
+    enabled: false
+  exporter:
+    enabled: false
+  rest:
+    enabled: false
+  worker:
+    size: 1
+    k8sNodeFilterName: gpu
+    slurmd:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      port: 6818
+      resources:
+        cpu: "4000m"
+        memory: "8Gi"
+        ephemeralStorage: "20Gi"
+      gpuPerNode: 3
+      gpuResource: nvidia.com/gpu
+    munge:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      resources:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeralStorage: "5Gi"
+    volumes:
+      spool:
+        volumeClaimTemplateSpec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+      jail:
+        volumeSourceName: jail
+  controller:
+    k8sNodeFilterName: no-gpu
+    slurmctld:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      port: 6817
+      resources:
+        cpu: "1000m"
+        memory: "2Gi"
+        ephemeralStorage: "10Gi"
+    munge:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      resources:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeralStorage: "5Gi"
+    volumes:
+      spool:
+        volumeClaimTemplateSpec:
+          accessModes:
+            - ReadWriteOnce
+          resources:
+            requests:
+              storage: 10Gi
+      jail:
+        volumeSourceName: jail
+  login:
+    size: 1
+    k8sNodeFilterName: no-gpu
+    sshd:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      port: 22
+      resources:
+        cpu: "1000m"
+        memory: "2Gi"
+        ephemeralStorage: "10Gi"
+    sshdServiceType: NodePort
+    sshdServiceNodePort: 30022
+    munge:
+      imagePullPolicy: IfNotPresent
+      appArmorProfile: unconfined
+      resources:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeralStorage: "5Gi"
+    volumes:
+      jail:
+        volumeSourceName: jail
+
+sConfigController:
+  node:
+    k8sNodeFilterName: no-gpu
+    size: 1
+  container:
+    imagePullPolicy: IfNotPresent
+    resources:
+      cpu: "250m"
+      memory: "256Mi"
+      ephemeralStorage: "500Mi"
+
+k8sNodeFilters:
+  - name: gpu
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+  - name: no-gpu
+    tolerations: []
+  - name: system
+    tolerations: []

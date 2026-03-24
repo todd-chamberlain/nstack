@@ -1,0 +1,14 @@
+driver:
+  enabled: true
+toolkit:
+  enabled: true
+devicePlugin:
+  enabled: true
+dcgmExporter:
+  enabled: true
+gfd:
+  enabled: true
+migManager:
+  enabled: false
+operator:
+  defaultRuntime: containerd

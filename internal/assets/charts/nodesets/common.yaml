@@ -1,0 +1,71 @@
+images:
+  munge:
+    repository: ghcr.io/nebius/soperator/munge
+    tag: "3.0.2-slurm25.11.3"
+  slurmd:
+    repository: ghcr.io/nebius/soperator/worker_slurmd
+    tag: "3.0.2-slurm25.11.3"
+
+nodesets:
+  - name: worker-gpu
+    replicas: 1
+    maxUnavailable: 1
+    ephemeralNodes: false
+    gpu:
+      enabled: true
+      nvidia:
+        gdrCopyEnabled: false
+    nodeConfig:
+      features:
+        - gpu
+        - cuda
+      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=8 ThreadsPerCore=2"
+      dynamic: "InstanceId={{ .PodName }}"
+      gresConfig:
+        - "AutoDetect=nvidia"
+    slurmd:
+      image:
+        repository: ghcr.io/nebius/soperator/worker_slurmd
+        tag: "3.0.2-slurm25.11.3"
+        pullPolicy: IfNotPresent
+      customEnv:
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"
+      port: 6818
+      resources:
+        cpu: "4000m"
+        memory: "8Gi"
+        ephemeralStorage: "20Gi"
+        gpu: 3
+      volumes:
+        spool:
+          volumeClaimTemplateSpec:
+            storageClassName: local-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: "10Gi"
+        jail:
+          persistentVolumeClaim:
+            claimName: jail-pvc
+        sharedMemorySize: "2Gi"
+      security:
+        appArmorProfile: unconfined
+    munge:
+      image:
+        repository: ghcr.io/nebius/soperator/munge
+        tag: "3.0.2-slurm25.11.3"
+        pullPolicy: IfNotPresent
+      resources:
+        cpu: "500m"
+        memory: "500Mi"
+        ephemeralStorage: "5Gi"
+      security:
+        appArmorProfile: unconfined
+    sssd:
+      enabled: false
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    priorityClass: ""

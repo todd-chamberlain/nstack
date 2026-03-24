@@ -1,0 +1,12 @@
+image: ghcr.io/mlflow/mlflow:v2.21.3
+port: 5000
+nodePort: 30500
+resources:
+  requests:
+    cpu: 500m
+    memory: 512Mi
+  limits:
+    cpu: 2000m
+    memory: 2Gi
+backendStore: "sqlite:///data/db/mlflow.db"
+artifactRoot: "/data/artifacts"

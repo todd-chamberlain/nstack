@@ -1,0 +1,26 @@
+# K3s-specific monitoring overrides
+defaultRules:
+  disabled:
+    NodeMemoryMajorPagesFaults: true
+    NodeFilesystemAlmostOutOfSpace: true
+
+grafana:
+  service:
+    type: NodePort
+    nodePort: 30030
+  persistence:
+    storageClassName: local-path
+
+prometheus:
+  prometheusSpec:
+    storageSpec:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
+
+alertmanager:
+  alertmanagerSpec:
+    storage:
+      volumeClaimTemplate:
+        spec:
+          storageClassName: local-path
