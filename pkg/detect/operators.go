@@ -3,11 +3,9 @@ package detect
 import (
 	"context"
 
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/client-go/kubernetes"
 
-	"github.com/todd-chamberlain/nstack/pkg/kube"
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 )
 
 // knownOperator describes an operator we look for in the cluster.
@@ -26,36 +24,10 @@ var operators = []knownOperator{
 }
 
 // detectOperators checks for the presence and status of known operators.
-func detectOperators(ctx context.Context, clientset kubernetes.Interface) ([]DetectedOperator, error) {
-	var results []DetectedOperator
-
+func detectOperators(ctx context.Context, clientset kubernetes.Interface) ([]engine.DetectedOperator, error) {
+	results := make([]engine.DetectedOperator, 0, len(operators))
 	for _, op := range operators {
-		dep, err := clientset.AppsV1().Deployments(op.namespace).Get(ctx, op.deployment, metav1.GetOptions{})
-		if err != nil {
-			if errors.IsNotFound(err) {
-				results = append(results, DetectedOperator{
-					Name:      op.name,
-					Namespace: op.namespace,
-					Status:    "not-installed",
-				})
-				continue
-			}
-			return nil, err
-		}
-
-		version := kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
-		status := "degraded"
-		if dep.Status.AvailableReplicas >= 1 {
-			status = "running"
-		}
-
-		results = append(results, DetectedOperator{
-			Name:      op.name,
-			Version:   version,
-			Namespace: op.namespace,
-			Status:    status,
-		})
+		results = append(results, engine.DetectDeployment(ctx, clientset, op.namespace, op.deployment, op.name))
 	}
-
 	return results, nil
 }

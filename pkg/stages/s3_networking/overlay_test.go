@@ -242,25 +242,6 @@ func TestConfigureOverlay_Unknown(t *testing.T) {
 	}
 }
 
-func TestDestroyOverlay_None(t *testing.T) {
-	cs := fake.NewSimpleClientset()
-	kc := kube.NewClientFromInterfaces(cs, nil, nil)
-	printer, _ := newTestPrinter()
-	ctx := context.Background()
-
-	err := destroyOverlay(ctx, kc, nil, nil, printer)
-	if err != nil {
-		t.Fatalf("expected no error for nil site, got: %v", err)
-	}
-
-	err = destroyOverlay(ctx, kc, nil, &config.Site{
-		Overlay: &config.OverlayConfig{Type: OverlayWireGuard},
-	}, printer)
-	if err != nil {
-		t.Fatalf("expected no error for wireguard destroy (nothing to uninstall), got: %v", err)
-	}
-}
-
 // newTestHelmClient creates a Helm client suitable for unit tests.
 // It uses a temporary directory for Helm config to avoid polluting
 // the real environment.

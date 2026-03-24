@@ -14,6 +14,7 @@ import (
 	"helm.sh/helm/v3/pkg/getter"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
 	"github.com/todd-chamberlain/nstack/pkg/output"
@@ -22,7 +23,7 @@ import (
 const (
 	soperatorVersion   = "3.0.2"
 	soperatorRelease   = "soperator"
-	soperatorNamespace = "soperator-system"
+	soperatorNamespace = engine.SoperatorNamespace
 	soperatorGitRepo   = "https://github.com/nebius/soperator.git"
 	soperatorGitTag    = "3.0.2"
 )

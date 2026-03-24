@@ -73,15 +73,11 @@ func NewClient(kubeconfig string) *Client {
 
 // actionConfig builds an action.Configuration bound to the client's kubeconfig and the given namespace.
 func (c *Client) actionConfig(namespace string) (*action.Configuration, error) {
-	settings := cli.New()
-	if c.kubeconfig != "" {
-		settings.KubeConfig = c.kubeconfig
-	}
 	if namespace != "" {
-		settings.SetNamespace(namespace)
+		c.settings.SetNamespace(namespace)
 	}
 	cfg := new(action.Configuration)
-	err := cfg.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
+	err := cfg.Init(c.settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
 	if err != nil {
 		return nil, fmt.Errorf("initializing Helm configuration: %w", err)
 	}

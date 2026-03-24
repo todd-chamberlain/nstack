@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 
-	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -28,31 +27,13 @@ func (s *MLOpsStage) Dependencies() []int { return nil }
 
 // Detect checks for existing MLflow and kube-prometheus-stack deployments.
 func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
-	result := &engine.DetectResult{}
-	cs := kc.Clientset()
-
-	// Check MLflow deployment.
-	mlDep, err := cs.AppsV1().Deployments(mlflowNamespace).Get(ctx, mlflowName, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if mlDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "mlflow",
-			Version:   kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers),
-			Namespace: mlflowNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "mlflow",
-			Namespace: mlflowNamespace,
-			Status:    "not-installed",
-		})
+	result := &engine.DetectResult{
+		Operators: []engine.DetectedOperator{
+			engine.DetectDeployment(ctx, kc.Clientset(), mlflowNamespace, mlflowName, "mlflow"),
+		},
 	}
 
-	// Check kube-prometheus-stack via Helm release.
+	// Check kube-prometheus-stack via Helm release (not a Deployment).
 	hc := helm.NewClient(kc.Kubeconfig())
 	installed, version, _ := hc.IsInstalled(monitoringRelease, monitoringNS)
 	if installed {
@@ -75,11 +56,7 @@ func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 
 // Validate verifies the cluster is reachable.
 func (s *MLOpsStage) Validate(ctx context.Context, kc *kube.Client, profile *config.Profile) error {
-	_, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("cluster not reachable: %w", err)
-	}
-	return nil
+	return engine.ValidateClusterReachable(ctx, kc.Clientset())
 }
 
 // Plan builds a StagePlan describing what actions to take for MLflow
@@ -186,39 +163,25 @@ func (s *MLOpsStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 // Status reports the current runtime health of the MLOps & Monitoring stage.
 func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
-	status := &engine.StageStatus{
-		Stage: s.Number(),
-		Name:  s.Name(),
-	}
-
 	cs := kc.Clientset()
 
-	// Check MLflow deployment.
-	mlStatus := engine.ComponentStatus{
-		Name:      "mlflow",
-		Namespace: mlflowNamespace,
+	mlStatus := engine.CheckDeploymentStatus(ctx, cs, mlflowNamespace, mlflowName, "mlflow")
+
+	status := &engine.StageStatus{
+		Stage:   s.Number(),
+		Name:    s.Name(),
+		Version: mlStatus.Version,
+		Components: []engine.ComponentStatus{
+			mlStatus,
+		},
 	}
-	mlDep, err := cs.AppsV1().Deployments(mlflowNamespace).Get(ctx, mlflowName, metav1.GetOptions{})
-	if err != nil {
-		mlStatus.Status = "not-installed"
-	} else {
-		mlStatus.Pods = int(mlDep.Status.Replicas)
-		mlStatus.Ready = int(mlDep.Status.ReadyReplicas)
-		mlStatus.Version = kube.ExtractImageVersion(mlDep.Spec.Template.Spec.Containers)
-		if mlDep.Status.AvailableReplicas >= 1 {
-			mlStatus.Status = "running"
-		} else {
-			mlStatus.Status = "degraded"
-		}
-		status.Version = mlStatus.Version
-		status.Applied = mlDep.CreationTimestamp.Time
-	}
-	status.Components = append(status.Components, mlStatus)
 
 	// Check monitoring components: Prometheus, Grafana, Alertmanager.
+	// Each is tried as a Deployment first, then as a StatefulSet (Prometheus
+	// and Alertmanager use StatefulSets in kube-prometheus-stack).
 	monComponents := []struct {
 		name       string
-		deployment string
+		resource   string
 		namespace  string
 	}{
 		{"prometheus", "prometheus-kube-prometheus-stack-prometheus", monitoringNS},
@@ -227,63 +190,15 @@ func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 	}
 
 	for _, mc := range monComponents {
-		compStatus := engine.ComponentStatus{
-			Name:      mc.name,
-			Namespace: mc.namespace,
+		compStatus := engine.CheckDeploymentStatus(ctx, cs, mc.namespace, mc.resource, mc.name)
+		if compStatus.Status == "not-installed" {
+			// Fall back to StatefulSet (Prometheus and Alertmanager).
+			compStatus = engine.CheckStatefulSetStatus(ctx, cs, mc.namespace, mc.resource, mc.name)
 		}
-
-		// Try as Deployment first, then as StatefulSet.
-		var dep *appsv1.Deployment
-		dep, err = cs.AppsV1().Deployments(mc.namespace).Get(ctx, mc.deployment, metav1.GetOptions{})
-		if err == nil {
-			compStatus.Pods = int(dep.Status.Replicas)
-			compStatus.Ready = int(dep.Status.ReadyReplicas)
-			compStatus.Version = kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
-			if dep.Status.AvailableReplicas >= 1 {
-				compStatus.Status = "running"
-			} else {
-				compStatus.Status = "degraded"
-			}
-		} else {
-			// Try StatefulSet (Prometheus and Alertmanager use StatefulSets).
-			ss, ssErr := cs.AppsV1().StatefulSets(mc.namespace).Get(ctx, mc.deployment, metav1.GetOptions{})
-			if ssErr == nil {
-				compStatus.Pods = int(ss.Status.Replicas)
-				compStatus.Ready = int(ss.Status.ReadyReplicas)
-				compStatus.Version = kube.ExtractImageVersion(ss.Spec.Template.Spec.Containers)
-				if ss.Status.ReadyReplicas >= 1 {
-					compStatus.Status = "running"
-				} else {
-					compStatus.Status = "degraded"
-				}
-			} else {
-				compStatus.Status = "not-installed"
-			}
-		}
-
 		status.Components = append(status.Components, compStatus)
 	}
 
-	// Determine overall status.
-	allRunning := true
-	anyNotInstalled := false
-	for _, c := range status.Components {
-		if c.Status != "running" {
-			allRunning = false
-		}
-		if c.Status == "not-installed" {
-			anyNotInstalled = true
-		}
-	}
-
-	switch {
-	case anyNotInstalled:
-		status.Status = "not-installed"
-	case allRunning:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
 }

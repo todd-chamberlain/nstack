@@ -8,6 +8,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
@@ -30,28 +31,12 @@ func (s *SlurmStage) Dependencies() []int { return []int{4} }
 
 // Detect checks for existing soperator and slurm cluster deployments.
 func (s *SlurmStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
-	result := &engine.DetectResult{}
 	cs := kc.Clientset()
 
-	// Check soperator-manager deployment.
-	sopDep, err := cs.AppsV1().Deployments(soperatorNamespace).Get(ctx, "soperator-manager", metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if sopDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "soperator",
-			Version:   kube.ExtractImageVersion(sopDep.Spec.Template.Spec.Containers),
-			Namespace: soperatorNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "soperator",
-			Namespace: soperatorNamespace,
-			Status:    "not-installed",
-		})
+	result := &engine.DetectResult{
+		Operators: []engine.DetectedOperator{
+			engine.DetectDeployment(ctx, cs, soperatorNamespace, "soperator-manager", "soperator"),
+		},
 	}
 
 	// Check for slurm-cluster Helm release by looking for controller pod.
@@ -77,11 +62,7 @@ func (s *SlurmStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 
 // Validate verifies the cluster is reachable and the GPU stage is deployed.
 func (s *SlurmStage) Validate(ctx context.Context, kc *kube.Client, profile *config.Profile) error {
-	_, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("cluster not reachable: %w", err)
-	}
-	return nil
+	return engine.ValidateClusterReachable(ctx, kc.Clientset())
 }
 
 // Plan builds a StagePlan describing what actions to take for the Slurm stage.
@@ -304,126 +285,81 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 // Status reports the current runtime health of the Slurm stage.
 func (s *SlurmStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
-	status := &engine.StageStatus{
-		Stage: s.Number(),
-		Name:  s.Name(),
-	}
-
 	cs := kc.Clientset()
 
-	// Check soperator-manager deployment.
-	sopStatus := engine.ComponentStatus{
-		Name:      "soperator",
-		Namespace: soperatorNamespace,
-	}
-	sopDep, err := cs.AppsV1().Deployments(soperatorNamespace).Get(ctx, "soperator-manager", metav1.GetOptions{})
-	if err != nil {
-		sopStatus.Status = "not-installed"
-	} else {
-		sopStatus.Pods = int(sopDep.Status.Replicas)
-		sopStatus.Ready = int(sopDep.Status.ReadyReplicas)
-		sopStatus.Version = kube.ExtractImageVersion(sopDep.Spec.Template.Spec.Containers)
-		if sopDep.Status.AvailableReplicas >= 1 {
-			sopStatus.Status = "running"
-		} else {
-			// Scale-down to 0 is intentional when patches.operatorScaleDown is set.
+	// Check soperator-manager deployment. Uses the shared helper as a
+	// starting point, then overrides the status for intentional scale-down.
+	sopStatus := engine.CheckDeploymentStatus(ctx, cs, soperatorNamespace, "soperator-manager", "soperator")
+	if sopStatus.Status == "degraded" {
+		// Scale-down to 0 is intentional when patches.operatorScaleDown is set.
+		dep, err := cs.AppsV1().Deployments(soperatorNamespace).Get(ctx, "soperator-manager", metav1.GetOptions{})
+		if err == nil {
 			desired := int32(1)
-			if sopDep.Spec.Replicas != nil {
-				desired = *sopDep.Spec.Replicas
+			if dep.Spec.Replicas != nil {
+				desired = *dep.Spec.Replicas
 			}
 			if desired == 0 {
 				sopStatus.Status = "scaled-down"
-			} else {
-				sopStatus.Status = "degraded"
 			}
 		}
-		status.Version = sopStatus.Version
-		status.Applied = sopDep.CreationTimestamp.Time
 	}
-	status.Components = append(status.Components, sopStatus)
+
+	status := &engine.StageStatus{
+		Stage:   s.Number(),
+		Name:    s.Name(),
+		Version: sopStatus.Version,
+		Components: []engine.ComponentStatus{
+			sopStatus,
+		},
+	}
 
 	// Check slurm controller pods.
-	ctrlStatus := engine.ComponentStatus{
-		Name:      "slurm-cluster",
-		Namespace: slurmNamespace,
-	}
-	ctrlPods, err := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/component=controller",
-	})
-	if err == nil && len(ctrlPods.Items) > 0 {
-		ctrlStatus.Pods = len(ctrlPods.Items)
-		ready := 0
-		for _, pod := range ctrlPods.Items {
-			for _, cond := range pod.Status.Conditions {
-				if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-					ready++
-					break
-				}
-			}
-		}
-		ctrlStatus.Ready = ready
-		if ready > 0 {
-			ctrlStatus.Status = "running"
-		} else {
-			ctrlStatus.Status = "degraded"
-		}
-	} else {
-		ctrlStatus.Status = "not-installed"
-	}
-	status.Components = append(status.Components, ctrlStatus)
+	status.Components = append(status.Components,
+		checkPodGroupStatus(ctx, cs, slurmNamespace, "app.kubernetes.io/component=controller", "slurm-cluster"))
 
 	// Check worker pods.
-	workerStatus := engine.ComponentStatus{
-		Name:      "worker-gpu",
-		Namespace: slurmNamespace,
-	}
-	workerPods, err := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/component=worker",
-	})
-	if err == nil && len(workerPods.Items) > 0 {
-		workerStatus.Pods = len(workerPods.Items)
-		ready := 0
-		for _, pod := range workerPods.Items {
-			for _, cond := range pod.Status.Conditions {
-				if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
-					ready++
-					break
-				}
-			}
-		}
-		workerStatus.Ready = ready
-		if ready > 0 {
-			workerStatus.Status = "running"
-		} else {
-			workerStatus.Status = "degraded"
-		}
-	} else {
-		workerStatus.Status = "not-installed"
-	}
-	status.Components = append(status.Components, workerStatus)
+	status.Components = append(status.Components,
+		checkPodGroupStatus(ctx, cs, slurmNamespace, "app.kubernetes.io/component=worker", "worker-gpu"))
 
-	// Determine overall status.
-	allRunning := true
-	anyNotInstalled := false
-	for _, c := range status.Components {
-		if c.Status != "running" && c.Status != "scaled-down" {
-			allRunning = false
-		}
-		if c.Status == "not-installed" {
-			anyNotInstalled = true
-		}
-	}
-
-	switch {
-	case anyNotInstalled:
-		status.Status = "not-installed"
-	case allRunning:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
+}
+
+// checkPodGroupStatus queries pods by label selector and returns a
+// ComponentStatus summarizing their readiness.
+func checkPodGroupStatus(ctx context.Context, cs kubernetes.Interface, namespace, labelSelector, componentName string) engine.ComponentStatus {
+	compStatus := engine.ComponentStatus{
+		Name:      componentName,
+		Namespace: namespace,
+		Status:    "not-installed",
+	}
+
+	pods, err := cs.CoreV1().Pods(namespace).List(ctx, metav1.ListOptions{
+		LabelSelector: labelSelector,
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return compStatus
+	}
+
+	compStatus.Pods = len(pods.Items)
+	ready := 0
+	for _, pod := range pods.Items {
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+				ready++
+				break
+			}
+		}
+	}
+	compStatus.Ready = ready
+	if ready > 0 {
+		compStatus.Status = "running"
+	} else {
+		compStatus.Status = "degraded"
+	}
+
+	return compStatus
 }
 
 // Destroy removes all Slurm stage components from the cluster in reverse order.

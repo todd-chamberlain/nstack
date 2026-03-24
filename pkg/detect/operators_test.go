@@ -8,6 +8,8 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 )
 
 func TestDetectOperators_Found(t *testing.T) {
@@ -53,7 +55,7 @@ func TestDetectOperators_Found(t *testing.T) {
 	}
 
 	// gpu-operator should be found and running.
-	var gpuOp *DetectedOperator
+	var gpuOp *engine.DetectedOperator
 	for i := range ops {
 		if ops[i].Name == "gpu-operator" {
 			gpuOp = &ops[i]
@@ -115,7 +117,7 @@ func TestDetectOperators_Degraded(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	var certMgr *DetectedOperator
+	var certMgr *engine.DetectedOperator
 	for i := range ops {
 		if ops[i].Name == "cert-manager" {
 			certMgr = &ops[i]

@@ -27,78 +27,19 @@ func (s *GPUStage) Dependencies() []int { return nil }
 
 // Detect checks for existing cert-manager and GPU Operator deployments.
 func (s *GPUStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
-	result := &engine.DetectResult{}
 	cs := kc.Clientset()
-
-	// Check cert-manager.
-	cmDep, err := cs.AppsV1().Deployments(certManagerNamespace).Get(ctx, certManagerRelease, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if cmDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "cert-manager",
-			Version:   kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers),
-			Namespace: certManagerNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "cert-manager",
-			Namespace: certManagerNamespace,
-			Status:    "not-installed",
-		})
-	}
-
-	// Check GPU Operator.
-	gpuDep, err := cs.AppsV1().Deployments(gpuOperatorNamespace).Get(ctx, gpuOperatorRelease, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if gpuDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "gpu-operator",
-			Version:   kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers),
-			Namespace: gpuOperatorNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "gpu-operator",
-			Namespace: gpuOperatorNamespace,
-			Status:    "not-installed",
-		})
-	}
-
-	// Check KAI Scheduler
-	kaiInstalled, kaiVersion := isKAISchedulerInstalled(ctx, kc)
-	if kaiInstalled {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "kai-scheduler",
-			Version:   kaiVersion,
-			Namespace: kaiSchedulerNamespace,
-			Status:    "running",
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "kai-scheduler",
-			Namespace: kaiSchedulerNamespace,
-			Status:    "not-installed",
-		})
-	}
-
-	return result, nil
+	return &engine.DetectResult{
+		Operators: []engine.DetectedOperator{
+			engine.DetectDeployment(ctx, cs, certManagerNamespace, certManagerRelease, "cert-manager"),
+			engine.DetectDeployment(ctx, cs, gpuOperatorNamespace, gpuOperatorRelease, "gpu-operator"),
+			engine.DetectDeployment(ctx, cs, kaiSchedulerNamespace, "kai-scheduler", "kai-scheduler"),
+		},
+	}, nil
 }
 
 // Validate verifies the cluster is reachable.
 func (s *GPUStage) Validate(ctx context.Context, kc *kube.Client, profile *config.Profile) error {
-	_, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("cluster not reachable: %w", err)
-	}
-	return nil
+	return engine.ValidateClusterReachable(ctx, kc.Clientset())
 }
 
 // Plan builds a StagePlan describing what actions to take for cert-manager
@@ -237,98 +178,28 @@ func (s *GPUStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, 
 
 // Status reports the current runtime health of the GPU Stack.
 func (s *GPUStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
-	status := &engine.StageStatus{
-		Stage: s.Number(),
-		Name:  s.Name(),
-	}
-
 	cs := kc.Clientset()
 
-	// Check cert-manager deployment.
-	cmStatus := engine.ComponentStatus{
-		Name:      "cert-manager",
-		Namespace: certManagerNamespace,
-	}
-	cmDep, err := cs.AppsV1().Deployments(certManagerNamespace).Get(ctx, certManagerRelease, metav1.GetOptions{})
-	if err != nil {
-		cmStatus.Status = "not-installed"
-	} else {
-		cmStatus.Pods = int(cmDep.Status.Replicas)
-		cmStatus.Ready = int(cmDep.Status.ReadyReplicas)
-		cmStatus.Version = kube.ExtractImageVersion(cmDep.Spec.Template.Spec.Containers)
-		if cmDep.Status.AvailableReplicas >= 1 {
-			cmStatus.Status = "running"
-		} else {
-			cmStatus.Status = "degraded"
-		}
-	}
-	status.Components = append(status.Components, cmStatus)
+	cmStatus := engine.CheckDeploymentStatus(ctx, cs, certManagerNamespace, certManagerRelease, "cert-manager")
+	gpuStatus := engine.CheckDeploymentStatus(ctx, cs, gpuOperatorNamespace, gpuOperatorRelease, "gpu-operator")
 
-	// Check GPU Operator deployment.
-	gpuStatus := engine.ComponentStatus{
-		Name:      "gpu-operator",
-		Namespace: gpuOperatorNamespace,
+	status := &engine.StageStatus{
+		Stage:   s.Number(),
+		Name:    s.Name(),
+		Version: gpuStatus.Version,
+		Components: []engine.ComponentStatus{
+			cmStatus,
+			gpuStatus,
+		},
 	}
-	gpuDep, err := cs.AppsV1().Deployments(gpuOperatorNamespace).Get(ctx, gpuOperatorRelease, metav1.GetOptions{})
-	if err != nil {
-		gpuStatus.Status = "not-installed"
-	} else {
-		gpuStatus.Pods = int(gpuDep.Status.Replicas)
-		gpuStatus.Ready = int(gpuDep.Status.ReadyReplicas)
-		gpuStatus.Version = kube.ExtractImageVersion(gpuDep.Spec.Template.Spec.Containers)
-		if gpuDep.Status.AvailableReplicas >= 1 {
-			gpuStatus.Status = "running"
-		} else {
-			gpuStatus.Status = "degraded"
-		}
-		status.Version = gpuStatus.Version
-		status.Applied = gpuDep.CreationTimestamp.Time
-	}
-	status.Components = append(status.Components, gpuStatus)
 
-	// Check KAI Scheduler (optional — only include if deployed).
-	kaiInstalled, kaiVersion := isKAISchedulerInstalled(ctx, kc)
-	if kaiInstalled {
-		kaiDep, kaiErr := cs.AppsV1().Deployments(kaiSchedulerNamespace).Get(ctx, "kai-scheduler", metav1.GetOptions{})
-		kaiStatus := engine.ComponentStatus{
-			Name:      "kai-scheduler",
-			Namespace: kaiSchedulerNamespace,
-			Version:   kaiVersion,
-		}
-		if kaiErr != nil {
-			kaiStatus.Status = "degraded"
-		} else {
-			kaiStatus.Pods = int(kaiDep.Status.Replicas)
-			kaiStatus.Ready = int(kaiDep.Status.ReadyReplicas)
-			if kaiDep.Status.AvailableReplicas >= 1 {
-				kaiStatus.Status = "running"
-			} else {
-				kaiStatus.Status = "degraded"
-			}
-		}
+	// Check KAI Scheduler (optional -- only include if deployed).
+	kaiStatus := engine.CheckDeploymentStatus(ctx, cs, kaiSchedulerNamespace, "kai-scheduler", "kai-scheduler")
+	if kaiStatus.Status != "not-installed" {
 		status.Components = append(status.Components, kaiStatus)
 	}
 
-	// Determine overall status.
-	allRunning := true
-	anyNotInstalled := false
-	for _, c := range status.Components {
-		if c.Status != "running" {
-			allRunning = false
-		}
-		if c.Status == "not-installed" {
-			anyNotInstalled = true
-		}
-	}
-
-	switch {
-	case anyNotInstalled:
-		status.Status = "not-installed"
-	case allRunning:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
 }

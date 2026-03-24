@@ -5,11 +5,10 @@ import (
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
-
-const soperatorNamespace = "soperator-system"
 
 // deploySoperatorDashboards conditionally installs Soperator Grafana dashboards.
 // For v0.1, this is a stub that checks whether the Soperator operator is deployed
@@ -19,7 +18,7 @@ const soperatorNamespace = "soperator-system"
 func deploySoperatorDashboards(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
 	// Check if soperator is deployed by looking for deployments in soperator-system.
 	cs := kc.Clientset()
-	deps, err := cs.AppsV1().Deployments(soperatorNamespace).List(ctx, metav1.ListOptions{
+	deps, err := cs.AppsV1().Deployments(engine.SoperatorNamespace).List(ctx, metav1.ListOptions{
 		Limit: 1,
 	})
 	if err != nil || len(deps.Items) == 0 {

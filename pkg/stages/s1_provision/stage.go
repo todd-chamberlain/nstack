@@ -35,41 +35,17 @@ func (s *ProvisionStage) Dependencies() []int { return []int{0} }
 
 // Detect checks for existing Metal3 Baremetal Operator deployments.
 func (s *ProvisionStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
-	result := &engine.DetectResult{}
-	cs := kc.Clientset()
-
-	// Check Metal3 Baremetal Operator.
-	dep, err := cs.AppsV1().Deployments(metal3Namespace).Get(ctx, metal3Release, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if dep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "baremetal-operator",
-			Version:   kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers),
-			Namespace: metal3Namespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "baremetal-operator",
-			Namespace: metal3Namespace,
-			Status:    "not-installed",
-		})
-	}
-
-	return result, nil
+	return &engine.DetectResult{
+		Operators: []engine.DetectedOperator{
+			engine.DetectDeployment(ctx, kc.Clientset(), metal3Namespace, metal3Release, "baremetal-operator"),
+		},
+	}, nil
 }
 
 // Validate verifies the management cluster is reachable and BMC credentials
 // are configured for nodes that require provisioning.
 func (s *ProvisionStage) Validate(ctx context.Context, kc *kube.Client, profile *config.Profile) error {
-	_, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("cluster not reachable: %w", err)
-	}
-	return nil
+	return engine.ValidateClusterReachable(ctx, kc.Clientset())
 }
 
 // Plan builds a StagePlan describing what actions to take for Metal3
@@ -170,55 +146,17 @@ func (s *ProvisionStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Cl
 
 // Status reports the current runtime health of the Provisioning stage.
 func (s *ProvisionStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
-	status := &engine.StageStatus{
-		Stage: s.Number(),
-		Name:  s.Name(),
-	}
-
 	cs := kc.Clientset()
 
-	// Check Metal3 Baremetal Operator deployment.
-	opStatus := engine.ComponentStatus{
-		Name:      "baremetal-operator",
-		Namespace: metal3Namespace,
-	}
-	dep, err := cs.AppsV1().Deployments(metal3Namespace).Get(ctx, metal3Release, metav1.GetOptions{})
-	if err != nil {
-		opStatus.Status = "not-installed"
-	} else {
-		opStatus.Pods = int(dep.Status.Replicas)
-		opStatus.Ready = int(dep.Status.ReadyReplicas)
-		opStatus.Version = kube.ExtractImageVersion(dep.Spec.Template.Spec.Containers)
-		if dep.Status.AvailableReplicas >= 1 {
-			opStatus.Status = "running"
-		} else {
-			opStatus.Status = "degraded"
-		}
-		status.Version = opStatus.Version
-		status.Applied = dep.CreationTimestamp.Time
-	}
-	status.Components = append(status.Components, opStatus)
+	opStatus := engine.CheckDeploymentStatus(ctx, cs, metal3Namespace, metal3Release, "baremetal-operator")
 
-	// Determine overall status.
-	allRunning := true
-	anyNotInstalled := false
-	for _, c := range status.Components {
-		if c.Status != "running" {
-			allRunning = false
-		}
-		if c.Status == "not-installed" {
-			anyNotInstalled = true
-		}
+	status := &engine.StageStatus{
+		Stage:      s.Number(),
+		Name:       s.Name(),
+		Version:    opStatus.Version,
+		Components: []engine.ComponentStatus{opStatus},
 	}
-
-	switch {
-	case anyNotInstalled:
-		status.Status = "not-installed"
-	case allRunning:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
 }

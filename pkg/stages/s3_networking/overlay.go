@@ -122,19 +122,3 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 		helm.WithTimeout(5*time.Minute),
 	)
 }
-
-// destroyOverlay removes overlay networking components.
-func destroyOverlay(ctx context.Context, kc *kube.Client, hc *helm.Client, site *config.Site, printer *output.Printer) error {
-	overlayType := OverlayNone
-	if site != nil && site.Overlay != nil {
-		overlayType = site.Overlay.Type
-	}
-
-	switch overlayType {
-	case OverlayTailscale:
-		printer.Infof("  Removing Tailscale operator...")
-		return hc.Uninstall("tailscale-operator", "tailscale-system")
-	default:
-		return nil // WireGuard and none have nothing to uninstall
-	}
-}

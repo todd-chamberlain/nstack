@@ -11,6 +11,8 @@ import (
 	"k8s.io/apimachinery/pkg/version"
 	fakediscovery "k8s.io/client-go/discovery/fake"
 	"k8s.io/client-go/kubernetes/fake"
+
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 )
 
 func TestRun_Full(t *testing.T) {
@@ -104,7 +106,7 @@ func TestRun_Full(t *testing.T) {
 	if len(result.Operators) != len(operators) {
 		t.Fatalf("expected %d operators, got %d", len(operators), len(result.Operators))
 	}
-	var gpuOp *DetectedOperator
+	var gpuOp *engine.DetectedOperator
 	for i := range result.Operators {
 		if result.Operators[i].Name == "gpu-operator" {
 			gpuOp = &result.Operators[i]

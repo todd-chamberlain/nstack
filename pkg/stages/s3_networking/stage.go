@@ -27,61 +27,18 @@ func (s *NetworkingStage) Dependencies() []int { return nil }
 
 // Detect checks for existing Network Operator and DOCA deployments.
 func (s *NetworkingStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
-	result := &engine.DetectResult{}
 	cs := kc.Clientset()
-
-	// Check Network Operator.
-	noDep, err := cs.AppsV1().Deployments(networkOperatorNamespace).Get(ctx, networkOperatorRelease, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if noDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "network-operator",
-			Version:   kube.ExtractImageVersion(noDep.Spec.Template.Spec.Containers),
-			Namespace: networkOperatorNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "network-operator",
-			Namespace: networkOperatorNamespace,
-			Status:    "not-installed",
-		})
-	}
-
-	// Check DOCA Operator.
-	docaDep, err := cs.AppsV1().Deployments(docaNamespace).Get(ctx, docaRelease, metav1.GetOptions{})
-	if err == nil {
-		opStatus := "degraded"
-		if docaDep.Status.AvailableReplicas >= 1 {
-			opStatus = "running"
-		}
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "doca-platform",
-			Version:   kube.ExtractImageVersion(docaDep.Spec.Template.Spec.Containers),
-			Namespace: docaNamespace,
-			Status:    opStatus,
-		})
-	} else {
-		result.Operators = append(result.Operators, engine.DetectedOperator{
-			Name:      "doca-platform",
-			Namespace: docaNamespace,
-			Status:    "not-installed",
-		})
-	}
-
-	return result, nil
+	return &engine.DetectResult{
+		Operators: []engine.DetectedOperator{
+			engine.DetectDeployment(ctx, cs, networkOperatorNamespace, networkOperatorRelease, "network-operator"),
+			engine.DetectDeployment(ctx, cs, docaNamespace, docaRelease, "doca-platform"),
+		},
+	}, nil
 }
 
 // Validate verifies the cluster is reachable.
 func (s *NetworkingStage) Validate(ctx context.Context, kc *kube.Client, profile *config.Profile) error {
-	_, err := kc.Clientset().CoreV1().Namespaces().List(ctx, metav1.ListOptions{Limit: 1})
-	if err != nil {
-		return fmt.Errorf("cluster not reachable: %w", err)
-	}
-	return nil
+	return engine.ValidateClusterReachable(ctx, kc.Clientset())
 }
 
 // Plan builds a StagePlan describing what actions to take for the overlay,
@@ -119,9 +76,9 @@ func (s *NetworkingStage) Plan(ctx context.Context, kc *kube.Client, profile *co
 			Namespace: networkOperatorNamespace,
 		})
 	} else {
-		noDep, noErr := cs.AppsV1().Deployments(networkOperatorNamespace).Get(ctx, networkOperatorRelease, metav1.GetOptions{})
-		if noErr == nil {
-			noVersion := kube.ExtractImageVersion(noDep.Spec.Template.Spec.Containers)
+		networkOpDep, networkOpErr := cs.AppsV1().Deployments(networkOperatorNamespace).Get(ctx, networkOperatorRelease, metav1.GetOptions{})
+		if networkOpErr == nil {
+			noVersion := kube.ExtractImageVersion(networkOpDep.Spec.Template.Spec.Containers)
 			plan.Components = append(plan.Components, engine.ComponentPlan{
 				Name:      "network-operator",
 				Action:    "skip",
@@ -226,80 +183,28 @@ func (s *NetworkingStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.C
 
 // Status reports the current runtime health of the Networking stage.
 func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
+	cs := kc.Clientset()
+
 	status := &engine.StageStatus{
 		Stage: s.Number(),
 		Name:  s.Name(),
 	}
 
-	cs := kc.Clientset()
-
 	// Check Network Operator deployment.
-	noStatus := engine.ComponentStatus{
-		Name:      "network-operator",
-		Namespace: networkOperatorNamespace,
-	}
-	noDep, err := cs.AppsV1().Deployments(networkOperatorNamespace).Get(ctx, networkOperatorRelease, metav1.GetOptions{})
-	if err != nil {
-		noStatus.Status = "not-installed"
-	} else {
-		noStatus.Pods = int(noDep.Status.Replicas)
-		noStatus.Ready = int(noDep.Status.ReadyReplicas)
-		noStatus.Version = kube.ExtractImageVersion(noDep.Spec.Template.Spec.Containers)
-		if noDep.Status.AvailableReplicas >= 1 {
-			noStatus.Status = "running"
-		} else {
-			noStatus.Status = "degraded"
-		}
-		status.Version = noStatus.Version
-		status.Applied = noDep.CreationTimestamp.Time
-	}
-	status.Components = append(status.Components, noStatus)
+	networkOpStatus := engine.CheckDeploymentStatus(ctx, cs, networkOperatorNamespace, networkOperatorRelease, "network-operator")
+	status.Version = networkOpStatus.Version
+	status.Components = append(status.Components, networkOpStatus)
 
 	// Only check DOCA if it appears to have been deployed (namespace exists).
 	// On clusters without DPUs, DOCA is never installed, so we treat it as
 	// not-applicable rather than not-installed.
 	_, nsErr := cs.CoreV1().Namespaces().Get(ctx, docaNamespace, metav1.GetOptions{})
 	if nsErr == nil {
-		docaStatus := engine.ComponentStatus{
-			Name:      "doca-platform",
-			Namespace: docaNamespace,
-		}
-		docaDep, docaErr := cs.AppsV1().Deployments(docaNamespace).Get(ctx, docaRelease, metav1.GetOptions{})
-		if docaErr != nil {
-			docaStatus.Status = "not-installed"
-		} else {
-			docaStatus.Pods = int(docaDep.Status.Replicas)
-			docaStatus.Ready = int(docaDep.Status.ReadyReplicas)
-			docaStatus.Version = kube.ExtractImageVersion(docaDep.Spec.Template.Spec.Containers)
-			if docaDep.Status.AvailableReplicas >= 1 {
-				docaStatus.Status = "running"
-			} else {
-				docaStatus.Status = "degraded"
-			}
-		}
-		status.Components = append(status.Components, docaStatus)
+		status.Components = append(status.Components,
+			engine.CheckDeploymentStatus(ctx, cs, docaNamespace, docaRelease, "doca-platform"))
 	}
 
-	// Determine overall status.
-	allRunning := true
-	anyNotInstalled := false
-	for _, c := range status.Components {
-		if c.Status != "running" {
-			allRunning = false
-		}
-		if c.Status == "not-installed" {
-			anyNotInstalled = true
-		}
-	}
-
-	switch {
-	case anyNotInstalled:
-		status.Status = "not-installed"
-	case allRunning:
-		status.Status = "deployed"
-	default:
-		status.Status = "degraded"
-	}
+	status.Status = engine.DetermineOverallStatus(status.Components)
 
 	return status, nil
 }

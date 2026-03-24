@@ -5,14 +5,16 @@ import (
 	"fmt"
 
 	"k8s.io/client-go/kubernetes"
+
+	"github.com/todd-chamberlain/nstack/pkg/engine"
 )
 
 // Result holds the full detection output for a cluster.
 type Result struct {
-	Kubernetes KubernetesInfo     `json:"kubernetes"`
-	GPUs       []DetectedGPU      `json:"gpus"`
-	Operators  []DetectedOperator `json:"operators"`
-	Storage    []StorageClass     `json:"storage"`
+	Kubernetes KubernetesInfo           `json:"kubernetes"`
+	GPUs       []DetectedGPU            `json:"gpus"`
+	Operators  []engine.DetectedOperator `json:"operators"`
+	Storage    []StorageClass           `json:"storage"`
 }
 
 // KubernetesInfo describes the discovered Kubernetes environment.
@@ -31,14 +33,6 @@ type DetectedGPU struct {
 	UUID     string `json:"uuid"`
 	NodeName string `json:"nodeName"`
 	Count    int    `json:"count"`
-}
-
-// DetectedOperator represents a known operator and its install status.
-type DetectedOperator struct {
-	Name      string `json:"name"`
-	Version   string `json:"version"`
-	Namespace string `json:"namespace"`
-	Status    string `json:"status"` // running, degraded, not-installed
 }
 
 // StorageClass represents a Kubernetes storage class.
