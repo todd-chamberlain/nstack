@@ -1,0 +1,23 @@
+name: nebius
+description: Nebius managed Kubernetes cluster
+kubernetes:
+  distribution: managed
+  multiNode: true
+  cgroupV2: true
+  containerdSocket: /run/containerd/containerd.sock
+  storageClass: nebius-network-ssd
+  runtimeClass: nvidia
+patches:
+  busyboxRetag: false
+  cgroupEntrypoint: false
+  operatorScaleDown: false
+  workerInitSkip: false
+  prologToBinTrue: false
+  procMountDefault: false
+storage:
+  type: pvc
+networking:
+  overlay: none
+  fabric: infiniband
+images:
+  registry: cr.eu-north1.nebius.cloud/soperator

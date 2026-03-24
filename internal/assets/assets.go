@@ -2,5 +2,5 @@ package assets
 
 import "embed"
 
-//go:embed profiles charts
+//go:embed all:profiles all:charts
 var FS embed.FS

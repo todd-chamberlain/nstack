@@ -1,0 +1,23 @@
+name: k3s-multi
+description: Multi-node K3s cluster
+kubernetes:
+  distribution: k3s
+  multiNode: true
+  cgroupV2: true
+  containerdSocket: /run/k3s/containerd/containerd.sock
+  storageClass: local-path
+  runtimeClass: nvidia
+patches:
+  busyboxRetag: true
+  cgroupEntrypoint: true
+  operatorScaleDown: true
+  workerInitSkip: true
+  prologToBinTrue: true
+  procMountDefault: true
+storage:
+  type: pvc
+networking:
+  overlay: none
+  fabric: none
+images:
+  registry: ghcr.io/nebius/soperator

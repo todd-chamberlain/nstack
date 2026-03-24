@@ -1,0 +1,24 @@
+name: k3s-single
+description: Single-node K3s cluster
+kubernetes:
+  distribution: k3s
+  multiNode: false
+  cgroupV2: true
+  containerdSocket: /run/k3s/containerd/containerd.sock
+  storageClass: local-path
+  runtimeClass: nvidia
+patches:
+  busyboxRetag: true
+  cgroupEntrypoint: true
+  operatorScaleDown: true
+  workerInitSkip: true
+  prologToBinTrue: true
+  procMountDefault: true
+storage:
+  type: hostPath
+  basePath: /ssd/arr-configs
+networking:
+  overlay: none
+  fabric: none
+images:
+  registry: ghcr.io/nebius/soperator

@@ -1,0 +1,23 @@
+name: kubeadm
+description: Standard kubeadm-provisioned cluster
+kubernetes:
+  distribution: kubeadm
+  multiNode: true
+  cgroupV2: true
+  containerdSocket: /run/containerd/containerd.sock
+  storageClass: ""
+  runtimeClass: nvidia
+patches:
+  busyboxRetag: false
+  cgroupEntrypoint: false
+  operatorScaleDown: false
+  workerInitSkip: false
+  prologToBinTrue: false
+  procMountDefault: false
+storage:
+  type: pvc
+networking:
+  overlay: none
+  fabric: none
+images:
+  registry: ghcr.io/nebius/soperator
