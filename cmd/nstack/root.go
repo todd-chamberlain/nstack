@@ -43,6 +43,14 @@ func init() {
 	_ = viper.BindPFlag("yes", rootCmd.PersistentFlags().Lookup("yes"))
 
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(initCmd)
+	rootCmd.AddCommand(detectCmd)
+	rootCmd.AddCommand(planCmd)
+	rootCmd.AddCommand(validateCmd)
+	rootCmd.AddCommand(deployCmd)
+	rootCmd.AddCommand(statusCmd)
+	rootCmd.AddCommand(destroyCmd)
+	rootCmd.AddCommand(upgradeCmd)
 }
 
 func initConfig() {
