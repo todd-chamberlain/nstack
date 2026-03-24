@@ -1,99 +1,71 @@
 # NStack
 
-Scale to N -- deploy NVIDIA GPU infrastructure and Slurm on any Kubernetes cluster.
+**Scale to N** — deploy NVIDIA GPU infrastructure + Slurm on any Kubernetes cluster.
 
-NStack is a CLI tool that automates the deployment of a complete GPU compute stack:
-NVIDIA GPU Operator, Slurm via Soperator, MLflow, and monitoring -- all on Kubernetes.
+NStack is a single Go binary that deploys the full NVIDIA GPU stack (GPU Operator, Soperator/Slurm, MLflow, monitoring) via a staged pipeline with environment detection and profile-based adaptation.
 
-## Quick Start
-
-```bash
-# Initialize a site configuration
-nstack init --site my-cluster --profile nebius
-
-# Detect cluster capabilities (distro, GPUs, existing operators)
-nstack detect --site my-cluster
-
-# Deploy the full stack
-nstack deploy --site my-cluster
-```
-
-## What It Deploys
-
-NStack organizes deployment into a pipeline of stages, each with dependency resolution
-and idempotent apply/destroy lifecycle:
-
-| Stage | Name | Components |
-|-------|------|------------|
-| 4 | GPU Stack | cert-manager, NVIDIA GPU Operator |
-| 5 | Slurm | Soperator (NVIDIA Slurm operator), Slurm cluster CR, K3s patches |
-| 6 | MLOps | MLflow, kube-prometheus-stack, Soperator Grafana dashboards |
-
-Stages 0-3 (networking, storage, security, scheduling) are planned for v0.2/v0.3.
-
-## Supported Environments
-
-- **K3s** (tested, with automatic containerd/RuntimeClass patches)
-- **kubeadm**
-- **EKS** (Amazon)
-- **GKE** (Google)
-- **AKS** (Azure)
-- **Nebius** (with built-in profile)
-
-## Installation
+## Install
 
 ```bash
 go install github.com/todd-chamberlain/nstack/cmd/nstack@latest
 ```
 
-Or build from source:
+Or download a binary from [Releases](https://github.com/todd-chamberlain/nstack/releases).
+
+## Quick Start
 
 ```bash
-git clone https://github.com/todd-chamberlain/nstack.git
-cd nstack
-make build
-# Binary is at ./bin/nstack
+# Initialize config
+nstack init --site lab --profile k3s-single --kubeconfig /etc/rancher/k3s/k3s.yaml
+
+# Detect cluster hardware
+nstack detect --site lab
+
+# Deploy everything
+nstack deploy --site lab
+
+# Check status
+nstack status --site lab
 ```
 
-## Commands
+## What It Deploys
 
-| Command | Description |
-|---------|-------------|
-| `nstack init` | Create a new site configuration from a profile |
-| `nstack detect` | Detect cluster distro, GPU hardware, installed operators |
-| `nstack plan` | Show what stages and components would be deployed |
-| `nstack validate` | Pre-flight checks (connectivity, RBAC, resource availability) |
-| `nstack deploy` | Deploy stages in dependency order |
-| `nstack status` | Show deployment state for each stage |
-| `nstack upgrade` | Upgrade deployed components to newer versions |
-| `nstack destroy` | Tear down stages in reverse dependency order |
+| Stage | Components |
+|-------|-----------|
+| **4: GPU Stack** | cert-manager, NVIDIA GPU Operator |
+| **5: Slurm** | Nebius Soperator, Slurm cluster, NodeSets, K3s patches |
+| **6: MLOps** | MLflow, kube-prometheus-stack, Grafana dashboards |
 
-## Architecture
-
-```
-cmd/nstack/         CLI entry point (Cobra + Viper)
-pkg/config/          Site config types, YAML loader, embedded profiles
-pkg/detect/          Cluster detection (distro, GPUs, operators)
-pkg/engine/          Stage interface, registry, dependency-resolving pipeline
-pkg/helm/            Helm SDK client with values merge
-pkg/kube/            Kubernetes client wrapper
-pkg/output/          Text/JSON output with TTY detection
-pkg/stages/          Stage implementations (s4_gpu, s5_slurm, s6_mlops)
-pkg/state/           ConfigMap-backed state management
-internal/assets/     Embedded Helm value overlays
-```
-
-## Configuration
-
-NStack uses YAML site configs stored in `~/.nstack/`:
+Jump in wherever your infrastructure starts:
 
 ```bash
-nstack init --site my-cluster --profile nebius
-# Creates ~/.nstack/sites/my-cluster/config.yaml
+nstack deploy --site lab --from stage4   # Full pipeline
+nstack deploy --site lab --only stage5   # Just Slurm
+nstack deploy --site lab --stages 4,6    # Cherry-pick
 ```
 
-Global flags: `--output json`, `--verbose`, `--quiet`, `--yes`.
+## Supported Environments
+
+- **K3s** (single-node and multi-node) with automatic cgroup v2 patches
+- **kubeadm** (standard Kubernetes)
+- **EKS / GKE / AKS** (managed cloud)
+- **Nebius Cloud** (native Soperator support)
+
+## Profiles
+
+Profiles define environment-specific behavior. NStack ships with:
+
+- `k3s-single` — single-node K3s with hostPath storage
+- `k3s-multi` — multi-node K3s with dynamic PVC storage
+- `kubeadm` — standard Kubernetes
+- `nebius` — Nebius AI Cloud managed Kubernetes
+
+## Roadmap
+
+- **v0.1** (current): Stages 4-6, detection, profiles
+- **v0.2**: Stage 3 (NVIDIA Network Operator, Multus, DOCA/DPU, WireGuard overlay)
+- **v0.3**: Stages 0-2 (IPMI discovery, Metal3 provisioning, K8s bootstrap)
 
 ## License
 
-Apache License 2.0. See [LICENSE](LICENSE) for details.
+Apache 2.0
