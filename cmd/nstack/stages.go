@@ -2,7 +2,9 @@ package main
 
 import (
 	"github.com/todd-chamberlain/nstack/pkg/engine"
+	"github.com/todd-chamberlain/nstack/pkg/stages/s0_discovery"
 	"github.com/todd-chamberlain/nstack/pkg/stages/s1_provision"
+	"github.com/todd-chamberlain/nstack/pkg/stages/s2_kubernetes"
 	"github.com/todd-chamberlain/nstack/pkg/stages/s3_networking"
 	"github.com/todd-chamberlain/nstack/pkg/stages/s4_gpu"
 	"github.com/todd-chamberlain/nstack/pkg/stages/s5_slurm"
@@ -11,7 +13,9 @@ import (
 
 func buildRegistry() *engine.Registry {
 	r := engine.NewRegistry()
+	r.Register(s0_discovery.New())
 	r.Register(s1_provision.New())
+	r.Register(s2_kubernetes.New())
 	r.Register(s3_networking.New())
 	r.Register(s4_gpu.New())
 	r.Register(s5_slurm.New())
