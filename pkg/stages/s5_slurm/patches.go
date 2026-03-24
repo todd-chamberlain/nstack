@@ -117,6 +117,7 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
+	// Phase 2: Webhook-dependent patches (operator must be running).
 	if profile.Patches.ProcMountDefault {
 		if err := patchProcMount(ctx, kc, printer); err != nil {
 			return fmt.Errorf("proc mount patch: %w", err)
@@ -124,9 +125,21 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		printer.PatchApplied("proc-mount-default")
 	}
 
+	// Phase 3: Scale operator DOWN immediately after webhook patches.
+	// This MUST happen before StatefulSet patches — the operator's reconciliation
+	// loop would overwrite our StatefulSet changes (replicas, init container skip, procMount).
+	if profile.Patches.OperatorScaleDown {
+		time.Sleep(5 * time.Second) // Let operator finish current reconciliation.
+		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
+			return fmt.Errorf("operator scale-down patch: %w", err)
+		}
+		printer.PatchApplied("operator-scale-down")
+		time.Sleep(3 * time.Second) // Wait for operator pod to terminate.
+	}
+
+	// Phase 4: StatefulSet patches (operator MUST be down).
 	if profile.Patches.WorkerInitSkip {
-		// Wait for the Kruise StatefulSet to be created by the soperator reconciler.
-		printer.Debugf("waiting for worker-gpu StatefulSet to be created by soperator...")
+		printer.Debugf("waiting for worker-gpu StatefulSet...")
 		gvr := schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1beta1", Resource: "statefulsets"}
 		for i := 0; i < 30; i++ {
 			_, err := kc.DynamicClient().Resource(gvr).Namespace(slurmNamespace).Get(ctx, "worker-gpu", metav1.GetOptions{})
@@ -141,22 +154,13 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		printer.PatchApplied("worker-init-skip")
 	}
 
-	// Bind-mount K3s containerd socket for kruise-daemon.
+	// Phase 5: Host-level patches.
 	if profile.Patches.ContainerdSocketBind {
 		if err := patchContainerdSocketBind(ctx, kc, printer); err != nil {
-			// Non-fatal: warn and continue.
 			printer.Debugf("containerd socket bind (non-fatal): %v", err)
 		} else {
 			printer.PatchApplied("containerd-socket-bind")
 		}
-	}
-
-	// Scale down operator LAST — after all patches that need the webhook.
-	if profile.Patches.OperatorScaleDown {
-		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
-			return fmt.Errorf("operator scale-down patch: %w", err)
-		}
-		printer.PatchApplied("operator-scale-down")
 	}
 
 	return nil

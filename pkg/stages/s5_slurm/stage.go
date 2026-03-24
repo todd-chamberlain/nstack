@@ -210,6 +210,12 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				}
 				err = installSlurmCluster(ctx, hc, site, profile, repoDir, printer)
 			case "nodesets":
+				// Create K3s ConfigMaps BEFORE nodesets (they're referenced by customVolumeMounts).
+				if profile != nil && profile.Patches.CgroupEntrypoint {
+					if cmErr := patchK3sConfigMaps(ctx, kc, printer); cmErr != nil {
+						printer.Debugf("creating K3s ConfigMaps (non-fatal): %v", cmErr)
+					}
+				}
 				err = installNodeSets(ctx, hc, site, profile, repoDir, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)
@@ -222,7 +228,35 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 		}
 	}
 
-	// Apply K3s patches after all components are installed.
+	// Wait for operator to reconcile the SlurmCluster into running pods.
+	// This is critical: the operator creates controller, login, and worker
+	// StatefulSets from the SlurmCluster CR. Patches can't be applied until
+	// the operator has finished this reconciliation.
+	if len(plan.Patches) > 0 {
+		printer.Infof("  Waiting for Slurm cluster reconciliation...")
+		cs := kc.Clientset()
+		for i := 0; i < 60; i++ {
+			pods, _ := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
+				LabelSelector: "app.kubernetes.io/name=slurmcluster",
+			})
+			running := 0
+			for _, p := range pods.Items {
+				if p.Status.Phase == corev1.PodRunning {
+					running++
+				}
+			}
+			if running >= 3 { // controller + login + sconfigcontroller at minimum
+				printer.Debugf("cluster reconciled: %d pods running", running)
+				break
+			}
+			if i%6 == 0 {
+				printer.Debugf("waiting for cluster pods... (%d running)", running)
+			}
+			time.Sleep(5 * time.Second)
+		}
+	}
+
+	// Apply K3s patches after operator has reconciled.
 	if len(plan.Patches) > 0 {
 		printer.Infof("  Applying K3s patches...")
 		if err := applyK3sPatches(ctx, kc, profile, printer); err != nil {
