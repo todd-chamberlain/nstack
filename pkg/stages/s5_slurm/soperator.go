@@ -20,7 +20,7 @@ const (
 	soperatorRelease   = "soperator"
 	soperatorNamespace = "soperator-system"
 	soperatorGitRepo   = "https://github.com/nebius/soperator.git"
-	soperatorGitTag    = "v3.0.2"
+	soperatorGitTag    = "3.0.2"
 )
 
 // cloneSoperatorRepo clones the soperator repository to a temporary directory at

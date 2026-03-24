@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	nodesetsRelease = "nodesets"
+	nodesetsRelease = "slurm-nodesets"
 )
 
 // installNodeSets deploys the nodesets Helm chart from the cloned soperator

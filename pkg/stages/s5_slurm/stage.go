@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -292,6 +293,13 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					err = installSoperator(ctx, hc, kc, profile, repoDir, overrides, printer)
 				}
 			case "slurm-cluster":
+				// Ensure soperator webhook is available (scale up if needed for validation).
+				if profile.Patches.OperatorScaleDown {
+					_ = kc.ScaleDeployment(ctx, soperatorNamespace, "soperator-manager", 1)
+					printer.Debugf("temporarily scaled soperator-manager to 1 for webhook")
+					// Wait briefly for the webhook endpoint to become available.
+					_ = kc.WaitForDeployment(ctx, soperatorNamespace, "soperator-manager", 60*time.Second)
+				}
 				err = installSlurmCluster(ctx, hc, site, profile, repoDir, printer)
 			case "nodesets":
 				err = installNodeSets(ctx, hc, site, profile, repoDir, printer)

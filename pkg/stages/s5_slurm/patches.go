@@ -106,11 +106,12 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
-	if profile.Patches.OperatorScaleDown {
-		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
-			return fmt.Errorf("operator scale-down patch: %w", err)
+	// Apply webhook-dependent patches BEFORE scaling down the operator.
+	if profile.Patches.ProcMountDefault {
+		if err := patchProcMount(ctx, kc, printer); err != nil {
+			return fmt.Errorf("proc mount patch: %w", err)
 		}
-		printer.PatchApplied("operator-scale-down")
+		printer.PatchApplied("proc-mount-default")
 	}
 
 	if profile.Patches.WorkerInitSkip {
@@ -120,11 +121,12 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		printer.PatchApplied("worker-init-skip")
 	}
 
-	if profile.Patches.ProcMountDefault {
-		if err := patchProcMount(ctx, kc, printer); err != nil {
-			return fmt.Errorf("proc mount patch: %w", err)
+	// Scale down operator LAST — after all patches that need the webhook.
+	if profile.Patches.OperatorScaleDown {
+		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
+			return fmt.Errorf("operator scale-down patch: %w", err)
 		}
-		printer.PatchApplied("proc-mount-default")
+		printer.PatchApplied("operator-scale-down")
 	}
 
 	return nil
@@ -253,7 +255,7 @@ func patchWorkerInitSkip(ctx context.Context, kc *kube.Client, printer *output.P
 
 	printer.Debugf("patching kruise StatefulSet worker-gpu")
 	return kc.PatchResource(ctx, gvr, slurmNamespace, "worker-gpu",
-		types.StrategicMergePatchType, patchData)
+		types.MergePatchType, patchData)
 }
 
 // patchProcMount patches the NodeSet "worker-gpu" custom resource to set
@@ -275,8 +277,8 @@ func patchProcMount(ctx context.Context, kc *kube.Client, printer *output.Printe
 
 	// NodeSet is a soperator CRD.
 	gvr := schema.GroupVersionResource{
-		Group:    "soperator.nebius.ai",
-		Version:  "v1",
+		Group:    "slurm.nebius.ai",
+		Version:  "v1alpha1",
 		Resource: "nodesets",
 	}
 

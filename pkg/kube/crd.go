@@ -58,6 +58,7 @@ func (c *Client) ApplyCRDs(ctx context.Context, yamlData []byte) (int, error) {
 			data,
 			metav1.PatchOptions{
 				FieldManager: "nstack",
+				Force:        boolPtr(true),
 			},
 		)
 		if err != nil {
@@ -68,6 +69,8 @@ func (c *Client) ApplyCRDs(ctx context.Context, yamlData []byte) (int, error) {
 
 	return applied, nil
 }
+
+func boolPtr(b bool) *bool { return &b }
 
 // splitYAMLDocuments splits multi-document YAML on "---" separators.
 func splitYAMLDocuments(data []byte) [][]byte {

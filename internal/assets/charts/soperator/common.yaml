@@ -4,13 +4,11 @@ controllerManager:
       repository: ghcr.io/nebius/soperator/slurm-operator
       tag: "3.0.2"
     imagePullPolicy: IfNotPresent
+    env:
+      isPrometheusCrdInstalled: "false"
 certManager:
   enabled: true
 kruise:
   installOperator: true
 serviceMonitor:
   enabled: false
-controllerManager:
-  manager:
-    env:
-      isPrometheusCrdInstalled: "false"
