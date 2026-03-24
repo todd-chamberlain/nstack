@@ -102,16 +102,9 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	if profile != nil {
 		if profile.Patches.CgroupEntrypoint {
 			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "cgroup-entrypoint",
-				Description: "Create worker-entrypoint-fix ConfigMap for cgroup v2",
+				Name:        "k3s-configmaps",
+				Description: "Create ConfigMaps for entrypoint fix and SPANK override",
 				Condition:   "patches.cgroupEntrypoint=true",
-			})
-		}
-		if profile.Patches.BusyboxRetag {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "busybox-retag",
-				Description: "Retag busybox:latest to Nebius registry path",
-				Condition:   "patches.busyboxRetag=true",
 			})
 		}
 		if profile.Patches.OperatorScaleDown {
@@ -148,13 +141,6 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 				Name:        "containerd-socket-bind",
 				Description: "Bind-mount K3s containerd socket for kruise-daemon",
 				Condition:   "patches.containerdSocketBind=true",
-			})
-		}
-		if profile.Patches.SpankDisable {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "spank-disable",
-				Description: "Disable SPANK chroot plugin in plugstack.conf",
-				Condition:   "patches.spankDisable=true",
 			})
 		}
 	}

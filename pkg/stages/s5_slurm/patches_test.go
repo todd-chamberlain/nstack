@@ -16,7 +16,7 @@ import (
 
 func int32Ptr(i int32) *int32 { return &i }
 
-func TestPatchCgroupEntrypoint_Creates(t *testing.T) {
+func TestPatchK3sConfigMaps_Creates(t *testing.T) {
 	cs := fake.NewSimpleClientset()
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	printer := output.New("text", true, false)
@@ -27,15 +27,15 @@ func TestPatchCgroupEntrypoint_Creates(t *testing.T) {
 		t.Fatalf("EnsureNamespace: %v", err)
 	}
 
-	err := patchCgroupEntrypoint(ctx, kc, printer)
+	err := patchK3sConfigMaps(ctx, kc, printer)
 	if err != nil {
-		t.Fatalf("patchCgroupEntrypoint: %v", err)
+		t.Fatalf("patchK3sConfigMaps: %v", err)
 	}
 
-	// Verify the ConfigMap was created.
+	// Verify the worker-entrypoint-fix ConfigMap was created.
 	cm, err := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "worker-entrypoint-fix", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("ConfigMap not found: %v", err)
+		t.Fatalf("worker-entrypoint-fix ConfigMap not found: %v", err)
 	}
 	if cm.Labels["app.kubernetes.io/managed-by"] != "nstack" {
 		t.Errorf("expected managed-by label=nstack, got %s", cm.Labels["app.kubernetes.io/managed-by"])
@@ -47,11 +47,23 @@ func TestPatchCgroupEntrypoint_Creates(t *testing.T) {
 	if len(script) == 0 {
 		t.Fatal("script content is empty")
 	}
+
+	// Verify the plugstack-override ConfigMap was created.
+	psCM, err := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "plugstack-override", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("plugstack-override ConfigMap not found: %v", err)
+	}
+	if psCM.Labels["app.kubernetes.io/managed-by"] != "nstack" {
+		t.Errorf("expected managed-by label=nstack on plugstack-override, got %s", psCM.Labels["app.kubernetes.io/managed-by"])
+	}
+	if _, ok := psCM.Data["plugstack.conf"]; !ok {
+		t.Fatal("expected plugstack.conf key in plugstack-override ConfigMap data")
+	}
 }
 
-func TestPatchCgroupEntrypoint_AlreadyExists(t *testing.T) {
-	// Pre-create the ConfigMap.
-	existingCM := &corev1.ConfigMap{
+func TestPatchK3sConfigMaps_AlreadyExists(t *testing.T) {
+	// Pre-create both ConfigMaps.
+	existingEntrypoint := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      "worker-entrypoint-fix",
 			Namespace: slurmNamespace,
@@ -60,26 +72,44 @@ func TestPatchCgroupEntrypoint_AlreadyExists(t *testing.T) {
 			"supervisord_entrypoint.sh": "old content",
 		},
 	}
+	existingPlugstack := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "plugstack-override",
+			Namespace: slurmNamespace,
+		},
+		Data: map[string]string{
+			"plugstack.conf": "old plugstack",
+		},
+	}
 	ns := &corev1.Namespace{
 		ObjectMeta: metav1.ObjectMeta{Name: slurmNamespace},
 	}
-	cs := fake.NewSimpleClientset(ns, existingCM)
+	cs := fake.NewSimpleClientset(ns, existingEntrypoint, existingPlugstack)
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	printer := output.New("text", true, false)
 	ctx := context.Background()
 
-	err := patchCgroupEntrypoint(ctx, kc, printer)
+	err := patchK3sConfigMaps(ctx, kc, printer)
 	if err != nil {
-		t.Fatalf("patchCgroupEntrypoint should not error on existing ConfigMap: %v", err)
+		t.Fatalf("patchK3sConfigMaps should not error on existing ConfigMaps: %v", err)
 	}
 
-	// Verify the ConfigMap was updated with new content.
+	// Verify the entrypoint ConfigMap was updated with new content.
 	cm, err := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "worker-entrypoint-fix", metav1.GetOptions{})
 	if err != nil {
-		t.Fatalf("ConfigMap not found: %v", err)
+		t.Fatalf("worker-entrypoint-fix ConfigMap not found: %v", err)
 	}
 	if cm.Data["supervisord_entrypoint.sh"] == "old content" {
-		t.Error("ConfigMap data was not updated")
+		t.Error("worker-entrypoint-fix ConfigMap data was not updated")
+	}
+
+	// Verify the plugstack ConfigMap was updated.
+	psCM, err := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "plugstack-override", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("plugstack-override ConfigMap not found: %v", err)
+	}
+	if psCM.Data["plugstack.conf"] == "old plugstack" {
+		t.Error("plugstack-override ConfigMap data was not updated")
 	}
 }
 
@@ -151,7 +181,6 @@ func TestApplyK3sPatches_NoPatches(t *testing.T) {
 		Name: "test",
 		Patches: config.ProfilePatches{
 			CgroupEntrypoint:  false,
-			BusyboxRetag:      false,
 			OperatorScaleDown: false,
 			WorkerInitSkip:    false,
 			ProcMountDefault:  false,
@@ -196,9 +225,13 @@ func TestApplyK3sPatches_CgroupOnly(t *testing.T) {
 		t.Fatalf("applyK3sPatches with CgroupEntrypoint=true: %v", err)
 	}
 
-	// Verify the ConfigMap was created.
+	// Verify both ConfigMaps were created.
 	_, err = cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "worker-entrypoint-fix", metav1.GetOptions{})
 	if err != nil {
 		t.Fatalf("expected worker-entrypoint-fix ConfigMap to exist: %v", err)
+	}
+	_, err = cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, "plugstack-override", metav1.GetOptions{})
+	if err != nil {
+		t.Fatalf("expected plugstack-override ConfigMap to exist: %v", err)
 	}
 }

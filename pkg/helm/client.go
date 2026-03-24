@@ -5,11 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 	"time"
 
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/getter"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 )
@@ -90,9 +92,16 @@ func (c *Client) actionConfig(namespace string) (*action.Configuration, error) {
 	return cfg, nil
 }
 
-// AddRepo adds (or updates) a named Helm chart repository.
+// AddRepo adds (or updates) a named Helm chart repository and downloads its index.
 func (c *Client) AddRepo(name, url string) error {
 	repoFile := c.settings.RepositoryConfig
+
+	// Ensure the repository config directory exists.
+	if dir := filepath.Dir(repoFile); dir != "" {
+		if err := os.MkdirAll(dir, 0755); err != nil {
+			return fmt.Errorf("creating repo config dir: %w", err)
+		}
+	}
 
 	f, err := repo.LoadFile(repoFile)
 	if err != nil || f == nil {
@@ -112,6 +121,16 @@ func (c *Client) AddRepo(name, url string) error {
 
 	if err := f.WriteFile(repoFile, 0644); err != nil {
 		return fmt.Errorf("writing repository file: %w", err)
+	}
+
+	// Download the index file so charts can be resolved.
+	chartRepo, err := repo.NewChartRepository(entry, getter.All(c.settings))
+	if err != nil {
+		return fmt.Errorf("creating chart repository: %w", err)
+	}
+	chartRepo.CachePath = c.settings.RepositoryCache
+	if _, err := chartRepo.DownloadIndexFile(); err != nil {
+		return fmt.Errorf("downloading repo index for %s: %w", name, err)
 	}
 
 	return nil

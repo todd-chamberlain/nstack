@@ -3,15 +3,10 @@ package s5_slurm
 import (
 	"context"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
-
-	"helm.sh/helm/v3/pkg/cli"
-	"helm.sh/helm/v3/pkg/downloader"
-	"helm.sh/helm/v3/pkg/getter"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
@@ -131,16 +126,14 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 	return nil
 }
 
-// helmDepUpdate runs a Helm dependency update on a local chart directory using the Helm SDK.
+// helmDepUpdate runs a Helm dependency update on a local chart directory.
+// Uses exec to invoke the helm binary, which handles repository config
+// and getter initialization correctly across all environments.
 func helmDepUpdate(chartDir string) error {
-	settings := cli.New()
-	man := &downloader.Manager{
-		ChartPath:        chartDir,
-		Getters:          getter.All(settings),
-		SkipUpdate:       false,
-		Out:              io.Discard,
-		RepositoryConfig: settings.RepositoryConfig,
-		RepositoryCache:  settings.RepositoryCache,
+	cmd := exec.Command("helm", "dependency", "update", chartDir)
+	out, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("helm dependency update %s: %s: %w", chartDir, string(out), err)
 	}
-	return man.Update()
+	return nil
 }

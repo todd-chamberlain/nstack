@@ -19,9 +19,6 @@ func TestLoadProfile_K3sSingle(t *testing.T) {
 	if p.Kubernetes.MultiNode != false {
 		t.Error("expected multiNode=false")
 	}
-	if !p.Patches.BusyboxRetag {
-		t.Error("expected busyboxRetag=true")
-	}
 	if !p.Patches.CgroupEntrypoint {
 		t.Error("expected cgroupEntrypoint=true")
 	}
@@ -50,9 +47,6 @@ func TestLoadProfile_Nebius(t *testing.T) {
 
 	if p.Kubernetes.Distribution != "managed" {
 		t.Errorf("expected distribution 'managed', got %q", p.Kubernetes.Distribution)
-	}
-	if p.Patches.BusyboxRetag {
-		t.Error("expected busyboxRetag=false")
 	}
 	if p.Patches.CgroupEntrypoint {
 		t.Error("expected cgroupEntrypoint=false")

@@ -8,14 +8,12 @@ kubernetes:
   storageClass: local-path
   runtimeClass: nvidia
 patches:
-  busyboxRetag: true
   cgroupEntrypoint: true
   operatorScaleDown: true
   workerInitSkip: true
   prologToBinTrue: true
   procMountDefault: true
   containerdSocketBind: true
-  spankDisable: true
 storage:
   type: hostPath
   basePath: /ssd/arr-configs

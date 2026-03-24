@@ -1,4 +1,4 @@
-# K3s-specific: GHCR images and cgroup config
+# K3s-specific: GHCR images, cgroup config, and SPANK override
 cudaVersion: "12.9.0"
 
 customSlurmConfig: |
@@ -16,11 +16,40 @@ slurmNodes:
       spool:
         volumeClaimTemplateSpec:
           storageClassName: local-path
+      customMounts:
+        - name: plugstack-override
+          mountPath: /etc/slurm/plugstack.conf
+          subPath: plugstack.conf
+          readOnly: true
+          volumeSource:
+            configMap:
+              name: plugstack-override
+              defaultMode: 420
   controller:
     volumes:
       spool:
         volumeClaimTemplateSpec:
           storageClassName: local-path
+      customMounts:
+        - name: plugstack-override
+          mountPath: /etc/slurm/plugstack.conf
+          subPath: plugstack.conf
+          readOnly: true
+          volumeSource:
+            configMap:
+              name: plugstack-override
+              defaultMode: 420
+  login:
+    volumes:
+      customMounts:
+        - name: plugstack-override
+          mountPath: /etc/slurm/plugstack.conf
+          subPath: plugstack.conf
+          readOnly: true
+          volumeSource:
+            configMap:
+              name: plugstack-override
+              defaultMode: 420
 
 images:
   slurmctld: "ghcr.io/nebius/soperator/controller_slurmctld:3.0.2-slurm25.11.3"

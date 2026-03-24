@@ -2,19 +2,16 @@ package s5_slurm
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/tools/remotecommand"
-	"k8s.io/kubectl/pkg/scheme"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
@@ -89,28 +86,37 @@ exec /usr/bin/supervisord
 
 // applyK3sPatches applies distribution-specific patches based on the profile.
 // Each patch is conditional on its corresponding flag in profile.Patches.
+//
+// Patches that were previously runtime hacks are now handled via Helm values:
+//   - busyboxRetag: replaced by images.* in slurm-cluster/k3s.yaml
+//   - spankDisable: replaced by plugstack-override ConfigMap mount in values
+//   - prologToBinTrue: slurmConfig.prolog/epilog in slurm-cluster/k3s.yaml
+//   - entrypoint volume mount: customVolumeMounts in nodesets/k3s.yaml
 func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profile, printer *output.Printer) error {
 	if profile == nil {
 		return nil
 	}
 
+	// Create ConfigMaps needed by Helm value volume mounts.
 	if profile.Patches.CgroupEntrypoint {
-		if err := patchCgroupEntrypoint(ctx, kc, printer); err != nil {
-			return fmt.Errorf("cgroup entrypoint patch: %w", err)
+		if err := patchK3sConfigMaps(ctx, kc, printer); err != nil {
+			return fmt.Errorf("K3s ConfigMaps: %w", err)
 		}
-		printer.PatchApplied("cgroup-entrypoint")
+		printer.PatchApplied("k3s-configmaps")
 	}
 
-	if profile.Patches.BusyboxRetag {
-		if err := patchBusyboxRetag(ctx, kc, profile, printer); err != nil {
-			// Non-fatal: warn and continue.
-			printer.Debugf("busybox retag patch (non-fatal): %v", err)
-		} else {
-			printer.PatchApplied("busybox-retag")
+	// Webhook-dependent patches need the operator running.
+	// Temporarily scale up if it was previously scaled to 0.
+	needsWebhook := profile.Patches.ProcMountDefault || profile.Patches.WorkerInitSkip
+	if needsWebhook && profile.Patches.OperatorScaleDown {
+		dep, err := kc.Clientset().AppsV1().Deployments(soperatorNamespace).Get(ctx, "soperator-manager", metav1.GetOptions{})
+		if err == nil && dep.Spec.Replicas != nil && *dep.Spec.Replicas == 0 {
+			printer.Debugf("temporarily scaling soperator-manager to 1 for webhook-dependent patches")
+			_ = kc.ScaleDeployment(ctx, soperatorNamespace, "soperator-manager", 1)
+			_ = kc.WaitForDeployment(ctx, soperatorNamespace, "soperator-manager", 60*time.Second)
 		}
 	}
 
-	// Apply webhook-dependent patches BEFORE scaling down the operator.
 	if profile.Patches.ProcMountDefault {
 		if err := patchProcMount(ctx, kc, printer); err != nil {
 			return fmt.Errorf("proc mount patch: %w", err)
@@ -119,6 +125,16 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 	}
 
 	if profile.Patches.WorkerInitSkip {
+		// Wait for the Kruise StatefulSet to be created by the soperator reconciler.
+		printer.Debugf("waiting for worker-gpu StatefulSet to be created by soperator...")
+		gvr := schema.GroupVersionResource{Group: "apps.kruise.io", Version: "v1beta1", Resource: "statefulsets"}
+		for i := 0; i < 30; i++ {
+			_, err := kc.DynamicClient().Resource(gvr).Namespace(slurmNamespace).Get(ctx, "worker-gpu", metav1.GetOptions{})
+			if err == nil {
+				break
+			}
+			time.Sleep(2 * time.Second)
+		}
 		if err := patchWorkerInitSkip(ctx, kc, printer); err != nil {
 			return fmt.Errorf("worker init skip patch: %w", err)
 		}
@@ -135,14 +151,6 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
-	// Disable SPANK chroot plugin (not available on K3s jail).
-	if profile.Patches.SpankDisable {
-		if err := patchSpankDisable(ctx, kc, printer); err != nil {
-			return fmt.Errorf("spank disable patch: %w", err)
-		}
-		printer.PatchApplied("spank-disable")
-	}
-
 	// Scale down operator LAST — after all patches that need the webhook.
 	if profile.Patches.OperatorScaleDown {
 		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
@@ -154,76 +162,56 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 	return nil
 }
 
-// patchCgroupEntrypoint creates or updates a ConfigMap containing the patched
-// supervisord_entrypoint.sh script for cgroup v2 compatibility on K3s.
-func patchCgroupEntrypoint(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+// patchK3sConfigMaps creates or updates the ConfigMaps that are referenced by
+// Helm value volume mounts (customMounts and customVolumeMounts):
+//   - worker-entrypoint-fix: patched supervisord_entrypoint.sh for cgroup v2
+//   - plugstack-override: empty plugstack.conf to disable SPANK chroot plugin
+func patchK3sConfigMaps(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
 	cs := kc.Clientset()
 
-	cm := &corev1.ConfigMap{
-		ObjectMeta: metav1.ObjectMeta{
-			Name:      "worker-entrypoint-fix",
-			Namespace: slurmNamespace,
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "nstack",
-				"app.kubernetes.io/component":  "slurm-patch",
+	configMaps := []*corev1.ConfigMap{
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "worker-entrypoint-fix",
+				Namespace: slurmNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "nstack",
+					"app.kubernetes.io/component":  "slurm-patch",
+				},
+			},
+			Data: map[string]string{
+				"supervisord_entrypoint.sh": workerEntrypointScript,
 			},
 		},
-		Data: map[string]string{
-			"supervisord_entrypoint.sh": workerEntrypointScript,
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "plugstack-override",
+				Namespace: slurmNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "nstack",
+					"app.kubernetes.io/component":  "slurm-patch",
+				},
+			},
+			Data: map[string]string{
+				"plugstack.conf": "# SPANK disabled for K3s by NStack\n",
+			},
 		},
 	}
 
-	_, err := cs.CoreV1().ConfigMaps(slurmNamespace).Create(ctx, cm, metav1.CreateOptions{})
-	if err != nil {
-		if apierrors.IsAlreadyExists(err) {
-			// Update the existing ConfigMap.
-			_, err = cs.CoreV1().ConfigMaps(slurmNamespace).Update(ctx, cm, metav1.UpdateOptions{})
-			if err != nil {
-				return fmt.Errorf("updating worker-entrypoint-fix ConfigMap: %w", err)
+	for _, cm := range configMaps {
+		_, err := cs.CoreV1().ConfigMaps(slurmNamespace).Create(ctx, cm, metav1.CreateOptions{})
+		if err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				_, err = cs.CoreV1().ConfigMaps(slurmNamespace).Update(ctx, cm, metav1.UpdateOptions{})
+				if err != nil {
+					return fmt.Errorf("updating %s ConfigMap: %w", cm.Name, err)
+				}
+				printer.Debugf("updated existing %s ConfigMap", cm.Name)
+				continue
 			}
-			printer.Debugf("updated existing worker-entrypoint-fix ConfigMap")
-			return nil
+			return fmt.Errorf("creating %s ConfigMap: %w", cm.Name, err)
 		}
-		return fmt.Errorf("creating worker-entrypoint-fix ConfigMap: %w", err)
-	}
-
-	printer.Debugf("created worker-entrypoint-fix ConfigMap")
-	return nil
-}
-
-// patchBusyboxRetag pulls busybox:latest and retags it to the Nebius registry path
-// expected by soperator init containers. Uses nerdctl with the k3s containerd socket.
-func patchBusyboxRetag(ctx context.Context, kc *kube.Client, profile *config.Profile, printer *output.Printer) error {
-	socket := "unix:///run/k3s/containerd/containerd.sock"
-	if profile != nil && profile.Kubernetes.ContainerdSocket != "" {
-		socket = profile.Kubernetes.ContainerdSocket
-	}
-
-	// Check if nerdctl is available.
-	nerdctl, err := exec.LookPath("nerdctl")
-	if err != nil {
-		return fmt.Errorf("nerdctl not found in PATH: %w", err)
-	}
-
-	printer.Debugf("pulling busybox:latest via nerdctl")
-	pullCmd := exec.CommandContext(ctx, nerdctl,
-		"--address", socket,
-		"--namespace", "k8s.io",
-		"pull", "busybox:latest",
-	)
-	if out, err := pullCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("pulling busybox:latest: %s: %w", string(out), err)
-	}
-
-	printer.Debugf("tagging busybox to nebius registry path")
-	tagCmd := exec.CommandContext(ctx, nerdctl,
-		"--address", socket,
-		"--namespace", "k8s.io",
-		"tag", "busybox:latest",
-		"cr.eu-north1.nebius.cloud/soperator/busybox:latest",
-	)
-	if out, err := tagCmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("tagging busybox: %s: %w", string(out), err)
+		printer.Debugf("created %s ConfigMap", cm.Name)
 	}
 
 	return nil
@@ -239,34 +227,18 @@ func patchOperatorScaleDown(ctx context.Context, kc *kube.Client, printer *outpu
 
 // patchWorkerInitSkip patches the worker-gpu StatefulSet (kruise) to skip
 // the problematic init container by replacing its command with a no-op,
-// and sets replicas to 1.
+// sets replicas to 1, and sets procMount to Default on the main container.
+// Uses a JSON patch targeting containers by index (not name) because the
+// operator names the init container "worker-init", not "init-k8s-topology".
 func patchWorkerInitSkip(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
-	// Use a strategic merge patch to modify the StatefulSet.
-	// Target: kruise StatefulSet "worker-gpu" in slurm namespace.
-	// We use a JSON merge patch to:
-	// 1. Set replicas to 1
-	// 2. Replace initContainers[1] command with a no-op
-
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"replicas": 1,
-			"template": map[string]interface{}{
-				"spec": map[string]interface{}{
-					"initContainers": []map[string]interface{}{
-						{
-							"name":    "init-k8s-topology",
-							"command": []string{"bash", "-c", "echo Skipping; exit 0"},
-						},
-					},
-				},
-			},
-		},
-	}
-
-	patchData, err := json.Marshal(patch)
-	if err != nil {
-		return fmt.Errorf("marshaling worker-gpu patch: %w", err)
-	}
+	// JSON Patch (RFC 6902) targeting by index:
+	// - initContainers[1] is the worker-init container (index 0 is munge native sidecar)
+	// - containers[0] is the slurmd container
+	patchData := []byte(`[
+  {"op":"replace","path":"/spec/replicas","value":1},
+  {"op":"replace","path":"/spec/template/spec/initContainers/1/command","value":["bash","-c","echo Skipping worker-init; exit 0"]},
+  {"op":"replace","path":"/spec/template/spec/containers/0/securityContext/procMount","value":"Default"}
+]`)
 
 	// kruise StatefulSets use the apps.kruise.io/v1beta1 API group.
 	gvr := schema.GroupVersionResource{
@@ -275,9 +247,9 @@ func patchWorkerInitSkip(ctx context.Context, kc *kube.Client, printer *output.P
 		Resource: "statefulsets",
 	}
 
-	printer.Debugf("patching kruise StatefulSet worker-gpu")
+	printer.Debugf("patching kruise StatefulSet worker-gpu (JSON patch)")
 	return kc.PatchResource(ctx, gvr, slurmNamespace, "worker-gpu",
-		types.MergePatchType, patchData)
+		types.JSONPatchType, patchData)
 }
 
 // patchContainerdSocketBind creates the bind-mount from the K3s containerd socket
@@ -348,84 +320,11 @@ WantedBy=multi-user.target
 	return nil
 }
 
-// execInPod executes a command in a pod container using client-go remotecommand
-// instead of shelling out to kubectl.
-func execInPod(ctx context.Context, kc *kube.Client, namespace, podName, container string, command []string) error {
-	req := kc.Clientset().CoreV1().RESTClient().Post().
-		Resource("pods").
-		Name(podName).
-		Namespace(namespace).
-		SubResource("exec").
-		VersionedParams(&corev1.PodExecOptions{
-			Container: container,
-			Command:   command,
-			Stdout:    true,
-			Stderr:    true,
-		}, scheme.ParameterCodec)
-
-	executor, err := remotecommand.NewSPDYExecutor(kc.RESTConfig(), "POST", req.URL())
-	if err != nil {
-		return err
-	}
-	return executor.StreamWithContext(ctx, remotecommand.StreamOptions{
-		Stdout: io.Discard,
-		Stderr: io.Discard,
-	})
-}
-
-// patchSpankDisable disables the SPANK chroot plugin in plugstack.conf across
-// all Slurm pods (controller, worker, login). The chroot.so plugin is not
-// available in the K3s jail environment.
-func patchSpankDisable(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
-	cs := kc.Clientset()
-
-	// Pods that run Slurm commands and need plugstack.conf fixed.
-	targets := []struct {
-		name      string
-		container string
-	}{
-		{"controller-0", "slurmctld"},
-		{"worker-gpu-0", "slurmd"},
-		{"login-0", "sshd"},
-	}
-
-	for _, t := range targets {
-		_, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.name, metav1.GetOptions{})
-		if err != nil {
-			printer.Debugf("pod %s not found, skipping SPANK patch", t.name)
-			continue
-		}
-
-		// Use client-go remotecommand to overwrite plugstack.conf.
-		err = execInPod(ctx, kc, slurmNamespace, t.name, t.container, []string{
-			"bash", "-c", `echo "# SPANK disabled for K3s by NStack" > /etc/slurm/plugstack.conf`,
-		})
-		if err != nil {
-			printer.Debugf("SPANK disable on %s (non-fatal): %v", t.name, err)
-		} else {
-			printer.Debugf("disabled SPANK on %s/%s", t.name, t.container)
-		}
-	}
-
-	return nil
-}
-
 // patchProcMount patches the NodeSet "worker-gpu" custom resource to set
 // security.procMount to "Default", required for K3s which doesn't support
 // the "Unmasked" procMount type.
 func patchProcMount(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
-	patch := map[string]interface{}{
-		"spec": map[string]interface{}{
-			"security": map[string]interface{}{
-				"procMount": "Default",
-			},
-		},
-	}
-
-	patchData, err := json.Marshal(patch)
-	if err != nil {
-		return fmt.Errorf("marshaling NodeSet procMount patch: %w", err)
-	}
+	patchData := []byte(`{"spec":{"security":{"procMount":"Default"}}}`)
 
 	// NodeSet is a soperator CRD.
 	gvr := schema.GroupVersionResource{

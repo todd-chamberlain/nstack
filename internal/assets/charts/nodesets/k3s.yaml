@@ -1,0 +1,22 @@
+# K3s nodesets overlay - entrypoint fix and SPANK override via volume mounts
+nodesets:
+  - name: worker-gpu
+    slurmd:
+      volumes:
+        customVolumeMounts:
+          - name: entrypoint-fix
+            mountPath: /opt/bin/slurm/supervisord_entrypoint.sh
+            subPath: supervisord_entrypoint.sh
+            readOnly: false
+            volumeSource:
+              configMap:
+                name: worker-entrypoint-fix
+                defaultMode: 493
+          - name: plugstack-override
+            mountPath: /etc/slurm/plugstack.conf
+            subPath: plugstack.conf
+            readOnly: true
+            volumeSource:
+              configMap:
+                name: plugstack-override
+                defaultMode: 420
