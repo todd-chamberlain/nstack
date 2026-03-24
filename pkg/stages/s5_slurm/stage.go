@@ -193,6 +193,20 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 				Applied:     true, // Applied via slurm-cluster/k3s.yaml values, not a runtime patch
 			})
 		}
+		if profile.Patches.ContainerdSocketBind {
+			plan.Patches = append(plan.Patches, engine.PatchPlan{
+				Name:        "containerd-socket-bind",
+				Description: "Bind-mount K3s containerd socket for kruise-daemon",
+				Condition:   "patches.containerdSocketBind=true",
+			})
+		}
+		if profile.Patches.SpankDisable {
+			plan.Patches = append(plan.Patches, engine.PatchPlan{
+				Name:        "spank-disable",
+				Description: "Disable SPANK chroot plugin in plugstack.conf",
+				Condition:   "patches.spankDisable=true",
+			})
+		}
 	}
 
 	// Determine overall stage action.

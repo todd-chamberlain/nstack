@@ -107,12 +107,14 @@ type ProfileKubernetes struct {
 
 // ProfilePatches lists workaround patches to apply for specific distributions.
 type ProfilePatches struct {
-	BusyboxRetag      bool `yaml:"busyboxRetag"`
-	CgroupEntrypoint  bool `yaml:"cgroupEntrypoint"`
-	OperatorScaleDown bool `yaml:"operatorScaleDown"`
-	WorkerInitSkip    bool `yaml:"workerInitSkip"`
-	PrologToBinTrue   bool `yaml:"prologToBinTrue"`
-	ProcMountDefault  bool `yaml:"procMountDefault"`
+	BusyboxRetag         bool `yaml:"busyboxRetag"`
+	CgroupEntrypoint     bool `yaml:"cgroupEntrypoint"`
+	OperatorScaleDown    bool `yaml:"operatorScaleDown"`
+	WorkerInitSkip       bool `yaml:"workerInitSkip"`
+	PrologToBinTrue      bool `yaml:"prologToBinTrue"`
+	ProcMountDefault     bool `yaml:"procMountDefault"`
+	ContainerdSocketBind bool `yaml:"containerdSocketBind"`
+	SpankDisable         bool `yaml:"spankDisable"`
 }
 
 // ProfileStorage defines the default storage strategy.

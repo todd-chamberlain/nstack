@@ -121,6 +121,24 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		printer.PatchApplied("worker-init-skip")
 	}
 
+	// Bind-mount K3s containerd socket for kruise-daemon.
+	if profile.Patches.ContainerdSocketBind {
+		if err := patchContainerdSocketBind(ctx, kc, printer); err != nil {
+			// Non-fatal: warn and continue.
+			printer.Debugf("containerd socket bind (non-fatal): %v", err)
+		} else {
+			printer.PatchApplied("containerd-socket-bind")
+		}
+	}
+
+	// Disable SPANK chroot plugin (not available on K3s jail).
+	if profile.Patches.SpankDisable {
+		if err := patchSpankDisable(ctx, kc, printer); err != nil {
+			return fmt.Errorf("spank disable patch: %w", err)
+		}
+		printer.PatchApplied("spank-disable")
+	}
+
 	// Scale down operator LAST — after all patches that need the webhook.
 	if profile.Patches.OperatorScaleDown {
 		if err := patchOperatorScaleDown(ctx, kc, printer); err != nil {
@@ -256,6 +274,107 @@ func patchWorkerInitSkip(ctx context.Context, kc *kube.Client, printer *output.P
 	printer.Debugf("patching kruise StatefulSet worker-gpu")
 	return kc.PatchResource(ctx, gvr, slurmNamespace, "worker-gpu",
 		types.MergePatchType, patchData)
+}
+
+// patchContainerdSocketBind creates the bind-mount from the K3s containerd socket
+// to the standard path expected by kruise-daemon. This must persist across reboots
+// so we also create a systemd mount unit.
+func patchContainerdSocketBind(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+	k3sSocket := "/run/k3s/containerd/containerd.sock"
+	stdSocket := "/run/containerd/containerd.sock"
+
+	// Create the bind-mount now.
+	cmds := [][]string{
+		{"mkdir", "-p", "/run/containerd"},
+		{"touch", stdSocket},
+		{"mount", "--bind", k3sSocket, stdSocket},
+	}
+
+	for _, args := range cmds {
+		cmd := exec.CommandContext(ctx, args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			// mount --bind may fail if already mounted — that's OK
+			if args[0] == "mount" {
+				printer.Debugf("mount --bind (may already be mounted): %s", string(out))
+				continue
+			}
+			return fmt.Errorf("running %v: %s: %w", args, string(out), err)
+		}
+	}
+
+	// Create a systemd mount unit so this persists across reboots.
+	mountUnit := `[Unit]
+Description=Bind mount K3s containerd socket for kruise-daemon
+After=k3s.service
+Requires=k3s.service
+
+[Mount]
+What=/run/k3s/containerd/containerd.sock
+Where=/run/containerd/containerd.sock
+Type=none
+Options=bind
+
+[Install]
+WantedBy=multi-user.target
+`
+	unitPath := "/etc/systemd/system/run-containerd-containerd.sock.mount"
+	writeCmd := exec.CommandContext(ctx, "bash", "-c",
+		fmt.Sprintf("echo '%s' > %s && systemctl daemon-reload && systemctl enable run-containerd-containerd.sock.mount",
+			mountUnit, unitPath))
+	if out, err := writeCmd.CombinedOutput(); err != nil {
+		printer.Debugf("systemd mount unit (non-fatal): %s: %v", string(out), err)
+	}
+
+	// Restart kruise-daemon to pick up the socket.
+	cs := kc.Clientset()
+	pods, err := cs.CoreV1().Pods("kruise-system").List(ctx, metav1.ListOptions{
+		LabelSelector: "control-plane=kruise-daemon",
+	})
+	if err == nil {
+		for _, pod := range pods.Items {
+			_ = cs.CoreV1().Pods("kruise-system").Delete(ctx, pod.Name, metav1.DeleteOptions{})
+			printer.Debugf("restarted kruise-daemon pod %s", pod.Name)
+		}
+	}
+
+	return nil
+}
+
+// patchSpankDisable disables the SPANK chroot plugin in plugstack.conf across
+// all Slurm pods (controller, worker, login). The chroot.so plugin is not
+// available in the K3s jail environment.
+func patchSpankDisable(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+	cs := kc.Clientset()
+
+	// Pods that run Slurm commands and need plugstack.conf fixed.
+	targets := []struct {
+		name      string
+		container string
+	}{
+		{"controller-0", "slurmctld"},
+		{"worker-gpu-0", "slurmd"},
+		{"login-0", "sshd"},
+	}
+
+	for _, t := range targets {
+		_, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.name, metav1.GetOptions{})
+		if err != nil {
+			printer.Debugf("pod %s not found, skipping SPANK patch", t.name)
+			continue
+		}
+
+		// Use kubectl exec to overwrite plugstack.conf.
+		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
+			t.name, "-c", t.container, "--",
+			"bash", "-c", `echo "# SPANK disabled for K3s by NStack" > /etc/slurm/plugstack.conf`)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			printer.Debugf("SPANK disable on %s (non-fatal): %s: %v", t.name, string(out), err)
+		} else {
+			printer.Debugf("disabled SPANK on %s/%s", t.name, t.container)
+		}
+	}
+
+	return nil
 }
 
 // patchProcMount patches the NodeSet "worker-gpu" custom resource to set
