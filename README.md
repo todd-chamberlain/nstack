@@ -2,7 +2,7 @@
 
 **Scale to N** — deploy NVIDIA GPU infrastructure + Slurm on any Kubernetes cluster.
 
-NStack is a single Go binary that deploys the full NVIDIA GPU stack (GPU Operator, Soperator/Slurm, MLflow, monitoring) via a staged pipeline with environment detection and profile-based adaptation.
+NStack is a single Go binary that deploys the full NVIDIA GPU stack (GPU Operator, Network Operator, DPU/DOCA, KAI Scheduler, Soperator/Slurm, MLflow, monitoring) via a staged pipeline with environment detection and profile-based adaptation.
 
 ## Install
 
@@ -32,7 +32,8 @@ nstack status --site lab
 
 | Stage | Components |
 |-------|-----------|
-| **4: GPU Stack** | cert-manager, NVIDIA GPU Operator |
+| **3: Networking** | NVIDIA Network Operator, Multus CNI, DOCA/DPU, WireGuard/Tailscale overlay |
+| **4: GPU Stack** | cert-manager, NVIDIA GPU Operator, KAI Scheduler |
 | **5: Slurm** | Nebius Soperator, Slurm cluster, NodeSets, K3s patches |
 | **6: MLOps** | MLflow, kube-prometheus-stack, Grafana dashboards |
 
@@ -62,8 +63,8 @@ Profiles define environment-specific behavior. NStack ships with:
 
 ## Roadmap
 
-- **v0.1** (current): Stages 4-6, detection, profiles
-- **v0.2**: Stage 3 (NVIDIA Network Operator, Multus, DOCA/DPU, WireGuard overlay)
+- **v0.1**: Stages 4-6, detection, profiles
+- **v0.2** (current): Stage 3 (NVIDIA Network Operator, Multus, DOCA/DPU, WireGuard/Tailscale overlay, KAI Scheduler)
 - **v0.3**: Stages 0-2 (IPMI discovery, Metal3 provisioning, K8s bootstrap)
 
 ## License
