@@ -9,6 +9,8 @@ slurmConfig:
   prolog: /bin/true
   taskProlog: /bin/true
   epilog: /bin/true
+  topologyPlugin: ""
+  topologyParam: ""
 
 slurmNodes:
   worker:
