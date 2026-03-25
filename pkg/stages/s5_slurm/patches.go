@@ -107,6 +107,12 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		printer.PatchApplied("k3s-configmaps")
 	}
 
+	// Ensure .populated marker exists in the jail PVC.
+	// The populate-jail job skips population when the jail already has data
+	// but doesn't create the marker, which blocks sconfigcontroller's init.
+	patchJailPopulatedMarker(ctx, kc, printer)
+	printer.PatchApplied("jail-populated-marker")
+
 	// Webhook-dependent patches need the operator running.
 	// Temporarily scale up if it was previously scaled to 0.
 	needsWebhook := profile.Patches.ProcMountDefault || profile.Patches.WorkerInitSkip
@@ -165,12 +171,8 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
-	// Phase 6: Add SPANK plugin library path to the dynamic linker cache
-	// on controller and login pods. The worker gets this via the custom
-	// entrypoint script. Controller/login need it via exec since they use
-	// the operator's default entrypoint.
-	patchSpankLibPath(ctx, kc, printer)
-	printer.PatchApplied("spank-lib-path")
+	// SPANK library path: handled via spank-ldconfig ConfigMap mounted on all pods.
+	// No runtime patch needed.
 
 	return nil
 }
@@ -207,6 +209,19 @@ func patchK3sConfigMaps(ctx context.Context, kc *kube.Client, printer *output.Pr
 			},
 			Data: map[string]string{
 				"plugstack.conf": "# SPANK disabled for K3s by NStack\n",
+			},
+		},
+		{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      "spank-ldconfig",
+				Namespace: slurmNamespace,
+				Labels: map[string]string{
+					"app.kubernetes.io/managed-by": "nstack",
+					"app.kubernetes.io/component":  "slurm-patch",
+				},
+			},
+			Data: map[string]string{
+				"slurm-spank.conf": "/usr/lib/x86_64-linux-gnu/slurm\n",
 			},
 		},
 	}
@@ -349,6 +364,30 @@ func patchProcMount(ctx context.Context, kc *kube.Client, printer *output.Printe
 	printer.Debugf("patching NodeSet worker-gpu procMount to Default")
 	return kc.PatchResource(ctx, gvr, slurmNamespace, "worker-gpu",
 		types.MergePatchType, patchData)
+}
+
+// patchJailPopulatedMarker creates the .populated marker in the jail PVC.
+// The populate-jail job exits early when the jail already has data but skips
+// creating the marker, which blocks sconfigcontroller's init container.
+func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *output.Printer) {
+	targets := []struct{ pod, container string }{
+		{"controller-0", "slurmctld"},
+		{"login-0", "sshd"},
+	}
+	cs := kc.Clientset()
+	for _, t := range targets {
+		if _, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.pod, metav1.GetOptions{}); err != nil {
+			continue
+		}
+		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
+			t.pod, "-c", t.container, "--", "touch", "/mnt/jail/.populated")
+		if out, err := cmd.CombinedOutput(); err != nil {
+			printer.Debugf("jail marker on %s (non-fatal): %s: %v", t.pod, string(out), err)
+		} else {
+			printer.Debugf("created .populated marker via %s", t.pod)
+			return
+		}
+	}
 }
 
 // patchSpankLibPath adds the SPANK plugin library path to the dynamic linker

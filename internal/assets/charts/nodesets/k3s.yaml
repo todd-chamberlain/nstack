@@ -68,8 +68,17 @@ nodesets:
               configMap:
                 name: plugstack-override
                 defaultMode: 420
+          - name: spank-ldconfig
+            mountPath: /etc/ld.so.conf.d/slurm-spank.conf
+            subPath: slurm-spank.conf
+            readOnly: true
+            volumeSource:
+              configMap:
+                name: spank-ldconfig
+                defaultMode: 420
       security:
         appArmorProfile: unconfined
+        procMount: "Default"
     munge:
       image:
         repository: ghcr.io/nebius/soperator/munge
