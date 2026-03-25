@@ -201,6 +201,18 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					err = installSoperator(ctx, hc, kc, profile, repoDir, overrides, printer)
 				}
 			case "slurm-cluster":
+				// Wait for K8s API to stabilize after soperator install.
+				// The soperator deploys ~54 resources (kruise, webhooks, CRDs) which
+				// can overwhelm the K3s API server on single-node clusters.
+				printer.Debugf("waiting 30s for API server to stabilize after soperator install...")
+				for retry := 0; retry < 6; retry++ {
+					time.Sleep(5 * time.Second)
+					_, apiErr := kc.Clientset().Discovery().ServerVersion()
+					if apiErr == nil {
+						break
+					}
+					printer.Debugf("API server not ready, retrying... (%v)", apiErr)
+				}
 				// Ensure soperator webhook is available (scale up if needed for validation).
 				if profile != nil && profile.Patches.OperatorScaleDown {
 					_ = kc.ScaleDeployment(ctx, soperatorNamespace, "soperator-manager", 1)
@@ -228,29 +240,41 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 		}
 	}
 
-	// Wait for operator to reconcile the SlurmCluster into running pods.
-	// This is critical: the operator creates controller, login, and worker
-	// StatefulSets from the SlurmCluster CR. Patches can't be applied until
-	// the operator has finished this reconciliation.
+	// Wait for the operator to fully reconcile the SlurmCluster.
+	// The operator creates ConfigMaps (SSH keys, munge keys, slurm configs),
+	// StatefulSets, and other resources. We must wait for reconciliation to
+	// complete before scaling the operator down, otherwise pods will fail
+	// with missing volume mounts.
+	//
+	// Signal that reconciliation is complete: the SSH root keys ConfigMap exists
+	// (it's one of the last resources created) AND at least 3 pods are running.
 	if len(plan.Patches) > 0 {
 		printer.Infof("  Waiting for Slurm cluster reconciliation...")
 		cs := kc.Clientset()
-		for i := 0; i < 60; i++ {
-			pods, _ := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
-				LabelSelector: "app.kubernetes.io/name=slurmcluster",
-			})
-			running := 0
-			for _, p := range pods.Items {
-				if p.Status.Phase == corev1.PodRunning {
-					running++
+		clusterName := "slurm1" // default cluster name from Helm values
+		sshKeyCM := clusterName + "-ssh-root-keys"
+
+		for i := 0; i < 120; i++ {
+			// Check if key ConfigMaps exist (signals operator finished).
+			_, cmErr := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, sshKeyCM, metav1.GetOptions{})
+			if cmErr == nil {
+				// Also verify pods are coming up.
+				pods, _ := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
+					LabelSelector: "app.kubernetes.io/name=slurmcluster",
+				})
+				running := 0
+				for _, p := range pods.Items {
+					if p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending {
+						running++
+					}
+				}
+				if running >= 3 {
+					printer.Debugf("cluster reconciled: SSH keys ConfigMap exists, %d pods active", running)
+					break
 				}
 			}
-			if running >= 3 { // controller + login + sconfigcontroller at minimum
-				printer.Debugf("cluster reconciled: %d pods running", running)
-				break
-			}
-			if i%6 == 0 {
-				printer.Debugf("waiting for cluster pods... (%d running)", running)
+			if i%12 == 0 {
+				printer.Debugf("waiting for operator to finish reconciliation...")
 			}
 			time.Sleep(5 * time.Second)
 		}

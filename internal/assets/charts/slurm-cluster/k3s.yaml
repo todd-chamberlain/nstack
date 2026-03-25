@@ -4,6 +4,7 @@ cudaVersion: "12.9.0"
 customSlurmConfig: |
   ProctrackType=proctrack/linuxproc
   TaskPlugin=task/affinity
+  PluginDir=/usr/lib/x86_64-linux-gnu/slurm
 
 slurmConfig:
   prolog: /bin/true
@@ -12,46 +13,18 @@ slurmConfig:
   topologyPlugin: ""
   topologyParam: ""
 
+# Make SPANK plugins optional (pyxis/nccl not available on K3s)
+plugStackConfig:
+  pyxis:
+    required: false
+  ncclDebug:
+    required: false
+    enabled: false
+
+# Login SSH node port
 slurmNodes:
-  worker:
-    volumes:
-      spool:
-        volumeClaimTemplateSpec:
-          storageClassName: local-path
-      customMounts:
-        - name: plugstack-override
-          mountPath: /etc/slurm/plugstack.conf
-          subPath: plugstack.conf
-          readOnly: true
-          volumeSource:
-            configMap:
-              name: plugstack-override
-              defaultMode: 420
-  controller:
-    volumes:
-      spool:
-        volumeClaimTemplateSpec:
-          storageClassName: local-path
-      customMounts:
-        - name: plugstack-override
-          mountPath: /etc/slurm/plugstack.conf
-          subPath: plugstack.conf
-          readOnly: true
-          volumeSource:
-            configMap:
-              name: plugstack-override
-              defaultMode: 420
   login:
-    volumes:
-      customMounts:
-        - name: plugstack-override
-          mountPath: /etc/slurm/plugstack.conf
-          subPath: plugstack.conf
-          readOnly: true
-          volumeSource:
-            configMap:
-              name: plugstack-override
-              defaultMode: 420
+    sshdServiceNodePort: 30022
 
 images:
   slurmctld: "ghcr.io/nebius/soperator/controller_slurmctld:3.0.2-slurm25.11.3"

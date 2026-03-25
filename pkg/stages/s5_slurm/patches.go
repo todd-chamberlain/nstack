@@ -163,6 +163,10 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
+	// SPANK plugins: PluginDir override and pyxis/nccl set to optional
+	// are handled via Helm values (customSlurmConfig + plugStackConfig).
+	// No runtime patch needed.
+
 	return nil
 }
 
