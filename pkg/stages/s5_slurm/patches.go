@@ -72,6 +72,8 @@ set_ulimit -HSv unlimited
 set_ulimit -HSx unlimited
 echo "Apply sysctl limits from /etc/sysctl.conf"
 sysctl -p 2>/dev/null || true
+echo "Add SPANK plugin path to linker cache"
+echo "/usr/lib/x86_64-linux-gnu/slurm" > /etc/ld.so.conf.d/slurm-spank.conf
 echo "Update linker cache"
 ldconfig
 echo "Complement jail rootfs"
@@ -163,9 +165,12 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 		}
 	}
 
-	// SPANK plugins: PluginDir override and pyxis/nccl set to optional
-	// are handled via Helm values (customSlurmConfig + plugStackConfig).
-	// No runtime patch needed.
+	// Phase 6: Add SPANK plugin library path to the dynamic linker cache
+	// on controller and login pods. The worker gets this via the custom
+	// entrypoint script. Controller/login need it via exec since they use
+	// the operator's default entrypoint.
+	patchSpankLibPath(ctx, kc, printer)
+	printer.PatchApplied("spank-lib-path")
 
 	return nil
 }
@@ -344,4 +349,34 @@ func patchProcMount(ctx context.Context, kc *kube.Client, printer *output.Printe
 	printer.Debugf("patching NodeSet worker-gpu procMount to Default")
 	return kc.PatchResource(ctx, gvr, slurmNamespace, "worker-gpu",
 		types.MergePatchType, patchData)
+}
+
+// patchSpankLibPath adds the SPANK plugin library path to the dynamic linker
+// cache on controller and login pods. The worker handles this in its custom
+// entrypoint script. This is needed because the operator hardcodes bare library
+// names in plugstack.conf (e.g., "chroot.so") and dlopen can't find them without
+// the path in ld.so.conf.d.
+func patchSpankLibPath(ctx context.Context, kc *kube.Client, printer *output.Printer) {
+	cs := kc.Clientset()
+	targets := []struct {
+		name, container string
+	}{
+		{"controller-0", "slurmctld"},
+		{"login-0", "sshd"},
+	}
+
+	ldconfigCmd := `echo "/usr/lib/x86_64-linux-gnu/slurm" > /etc/ld.so.conf.d/slurm-spank.conf && ldconfig`
+
+	for _, t := range targets {
+		if _, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.name, metav1.GetOptions{}); err != nil {
+			continue
+		}
+		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
+			t.name, "-c", t.container, "--", "bash", "-c", ldconfigCmd)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			printer.Debugf("ldconfig on %s (non-fatal): %s: %v", t.name, string(out), err)
+		} else {
+			printer.Debugf("SPANK lib path added on %s/%s", t.name, t.container)
+		}
+	}
 }
