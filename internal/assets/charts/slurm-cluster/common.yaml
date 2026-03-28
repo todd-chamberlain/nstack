@@ -89,13 +89,6 @@ slurmNodes:
         memory: "500Mi"
         ephemeralStorage: "5Gi"
     volumes:
-      spool:
-        volumeClaimTemplateSpec:
-          accessModes:
-            - ReadWriteOnce
-          resources:
-            requests:
-              storage: 10Gi
       jail:
         volumeSourceName: jail
   login:

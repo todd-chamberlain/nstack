@@ -32,8 +32,13 @@ plugStackConfig:
     required: false
     enabled: false
 
-# Login SSH node port
+# Controller uses pre-created PVC, login SSH node port
 slurmNodes:
+  controller:
+    volumes:
+      spool:
+        volumeSourceName: controller-spool
+        volumeClaimTemplateSpec: null
   login:
     sshdServiceNodePort: 30222
 

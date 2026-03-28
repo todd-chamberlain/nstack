@@ -21,7 +21,7 @@ nodesets:
       features:
         - gpu
         - cuda
-      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=24 ThreadsPerCore=1"
+      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=8 ThreadsPerCore=1"
       dynamic: "InstanceId={{ .PodName }}"
       gresConfig:
         - "AutoDetect=nvidia"
