@@ -21,7 +21,7 @@ nodesets:
       features:
         - gpu
         - cuda
-      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=8 ThreadsPerCore=2"
+      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=24 ThreadsPerCore=1"
       dynamic: "InstanceId={{ .PodName }}"
       gresConfig:
         - "AutoDetect=nvidia"
@@ -51,31 +51,6 @@ nodesets:
           persistentVolumeClaim:
             claimName: jail-pvc
         sharedMemorySize: "2Gi"
-        customVolumeMounts:
-          - name: entrypoint-fix
-            mountPath: /opt/bin/slurm/supervisord_entrypoint.sh
-            subPath: supervisord_entrypoint.sh
-            readOnly: false
-            volumeSource:
-              configMap:
-                name: worker-entrypoint-fix
-                defaultMode: 493
-          - name: plugstack-override
-            mountPath: /etc/slurm/plugstack.conf
-            subPath: plugstack.conf
-            readOnly: true
-            volumeSource:
-              configMap:
-                name: plugstack-override
-                defaultMode: 420
-          - name: spank-ldconfig
-            mountPath: /etc/ld.so.conf.d/slurm-spank.conf
-            subPath: slurm-spank.conf
-            readOnly: true
-            volumeSource:
-              configMap:
-                name: spank-ldconfig
-                defaultMode: 420
       security:
         appArmorProfile: unconfined
         procMount: "Default"

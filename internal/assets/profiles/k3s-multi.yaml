@@ -8,11 +8,6 @@ kubernetes:
   storageClass: local-path
   runtimeClass: nvidia
 patches:
-  cgroupEntrypoint: true
-  operatorScaleDown: true
-  workerInitSkip: true
-  prologToBinTrue: true
-  procMountDefault: true
   containerdSocketBind: true
 storage:
   type: pvc

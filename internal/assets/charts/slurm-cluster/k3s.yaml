@@ -5,6 +5,17 @@ customSlurmConfig: |
   ProctrackType=proctrack/linuxproc
   TaskPlugin=task/affinity
   PluginDir=/usr/lib/x86_64-linux-gnu/slurm
+  SuspendTime=-1
+  SuspendProgram=/bin/true
+  ResumeProgram=/bin/true
+
+customCgroupConfig: |
+  CgroupPlugin=disabled
+  ConstrainCores=no
+  ConstrainDevices=no
+  ConstrainRAMSpace=no
+  EnableControllers=no
+  IgnoreSystemd=yes
 
 slurmConfig:
   prolog: /bin/true
@@ -21,31 +32,10 @@ plugStackConfig:
     required: false
     enabled: false
 
-# Volume source for the ldconfig SPANK fix
-# dlopen can't find SPANK plugins at /usr/lib/x86_64-linux-gnu/slurm/ without this
-volumeSources:
-  - name: spank-ldconfig
-    configMap:
-      name: spank-ldconfig
-      defaultMode: 0644
-
-# Mount the ldconfig fix on all node types + set login SSH port
+# Login SSH node port
 slurmNodes:
-  controller:
-    volumes:
-      customMounts:
-        - name: spank-ldconfig
-          mountPath: /etc/ld.so.conf.d/slurm-spank.conf
-          subPath: slurm-spank.conf
-          volumeSourceName: spank-ldconfig
   login:
-    sshdServiceNodePort: 30022
-    volumes:
-      customMounts:
-        - name: spank-ldconfig
-          mountPath: /etc/ld.so.conf.d/slurm-spank.conf
-          subPath: slurm-spank.conf
-          volumeSourceName: spank-ldconfig
+    sshdServiceNodePort: 30222
 
 images:
   slurmctld: "ghcr.io/nebius/soperator/controller_slurmctld:3.0.2-slurm25.11.3"
