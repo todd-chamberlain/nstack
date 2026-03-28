@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"time"
 
 	corev1 "k8s.io/api/core/v1"
@@ -224,6 +225,19 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				}
 				if running >= 3 {
 					printer.Debugf("cluster reconciled: SSH keys ConfigMap exists, %d pods active", running)
+
+					// Clear stale node_state from the controller spool PVC.
+					// Previous deploys may have saved state with different CPU topology
+					// which causes INVALID_REG on the next deploy.
+					clearCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
+						"controller-0", "-c", "slurmctld", "--",
+						"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
+					if out, err := clearCmd.CombinedOutput(); err != nil {
+						printer.Debugf("spool cleanup (non-fatal): %s: %v", string(out), err)
+					} else {
+						printer.Debugf("cleared stale slurmctld state")
+					}
+
 					break
 				}
 			}
