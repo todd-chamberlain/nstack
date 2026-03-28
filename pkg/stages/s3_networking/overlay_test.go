@@ -5,6 +5,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -167,13 +168,16 @@ func TestConfigureOverlay_WireGuard_NonK3s(t *testing.T) {
 }
 
 func TestConfigureOverlay_Tailscale(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping Tailscale test in short mode (requires network)")
+	}
 	// Tailscale overlay will attempt a Helm install, which will fail without a
-	// real cluster. We just verify it does not panic and returns an error
-	// (from the Helm client trying to locate the chart).
+	// real cluster. We just verify it does not panic and returns an error.
 	cs := fake.NewSimpleClientset()
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	printer, _ := newTestPrinter()
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
 	site := &config.Site{
 		Overlay: &config.OverlayConfig{Type: OverlayTailscale},
@@ -187,14 +191,9 @@ func TestConfigureOverlay_Tailscale(t *testing.T) {
 		},
 	}
 
-	// configureTailscale needs a real helm.Client which requires a kubeconfig.
-	// We pass an empty-string kubeconfig; AddRepo will fail writing the repo file
-	// because there is no Helm home directory. This is expected.
 	hc := newTestHelmClient()
 
 	err := configureOverlay(ctx, kc, hc, site, nil, printer)
-	// We expect an error since we don't have a real Helm environment.
-	// The important thing is that it didn't panic.
 	if err == nil {
 		t.Log("configureTailscale succeeded (unexpected in test env, but not a failure)")
 	}

@@ -105,15 +105,9 @@ type ProfileKubernetes struct {
 	RuntimeClass     string `yaml:"runtimeClass"`
 }
 
-// ProfilePatches lists workaround patches to apply for specific distributions.
-// Note: busyboxRetag and spankDisable were removed — these are now handled via
-// native Helm values (images.* and plugstack-override ConfigMap mount).
+// ProfilePatches lists the minimal runtime patches needed for specific distributions.
+// Most K3s adaptations are handled via Helm values and the patched operator fork.
 type ProfilePatches struct {
-	CgroupEntrypoint     bool `yaml:"cgroupEntrypoint"`
-	OperatorScaleDown    bool `yaml:"operatorScaleDown"`
-	WorkerInitSkip       bool `yaml:"workerInitSkip"`
-	PrologToBinTrue      bool `yaml:"prologToBinTrue"`
-	ProcMountDefault     bool `yaml:"procMountDefault"`
 	ContainerdSocketBind bool `yaml:"containerdSocketBind"`
 }
 
