@@ -3,7 +3,7 @@ controllerManager:
     image:
       repository: ghcr.io/nebius/soperator/slurm-operator
       tag: "3.0.2-patched"
-    imagePullPolicy: IfNotPresent
+    imagePullPolicy: Never
     env:
       isPrometheusCrdInstalled: "false"
 certManager:
