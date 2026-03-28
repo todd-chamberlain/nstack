@@ -181,8 +181,17 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 		}
 
 		_, err := cs.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
-		if err != nil && !apierrors.IsAlreadyExists(err) {
-			return fmt.Errorf("creating mlflow PV: %w", err)
+		if err != nil {
+			if apierrors.IsAlreadyExists(err) {
+				// Fix stale claimRef from previous namespace deletion.
+				existing, getErr := cs.CoreV1().PersistentVolumes().Get(ctx, mlflowPVName, metav1.GetOptions{})
+				if getErr == nil && existing.Status.Phase == corev1.VolumeReleased {
+					existing.Spec.ClaimRef = pv.Spec.ClaimRef
+					_, _ = cs.CoreV1().PersistentVolumes().Update(ctx, existing, metav1.UpdateOptions{})
+				}
+			} else {
+				return fmt.Errorf("creating mlflow PV: %w", err)
+			}
 		}
 		printer.Debugf("created PV %s at %s", mlflowPVName, hostPath)
 

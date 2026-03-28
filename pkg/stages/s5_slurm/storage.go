@@ -135,6 +135,13 @@ func ensureHostPathPV(ctx context.Context, cs kubernetes.Interface, name, namesp
 	_, err := cs.CoreV1().PersistentVolumes().Create(ctx, pv, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
+			// PV exists — check if it's in Released state with a stale claimRef.
+			// This happens after namespace delete/recreate cycles.
+			existing, getErr := cs.CoreV1().PersistentVolumes().Get(ctx, name, metav1.GetOptions{})
+			if getErr == nil && existing.Status.Phase == corev1.VolumeReleased {
+				existing.Spec.ClaimRef = pv.Spec.ClaimRef
+				_, _ = cs.CoreV1().PersistentVolumes().Update(ctx, existing, metav1.UpdateOptions{})
+			}
 			return nil
 		}
 		return err
