@@ -9,6 +9,9 @@ grafana:
     type: NodePort
     nodePort: 30030
   persistence:
+    enabled: true
+    type: pvc
+    size: 1Gi
     storageClassName: local-path
 
 prometheus:
