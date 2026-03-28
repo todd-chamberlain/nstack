@@ -19,20 +19,16 @@ func TestLoadProfile_K3sSingle(t *testing.T) {
 	if p.Kubernetes.MultiNode != false {
 		t.Error("expected multiNode=false")
 	}
-	if !p.Patches.CgroupEntrypoint {
-		t.Error("expected cgroupEntrypoint=true")
+	if !p.Patches.ContainerdSocketBind {
+		t.Error("expected containerdSocketBind=true")
 	}
-	if !p.Patches.OperatorScaleDown {
-		t.Error("expected operatorScaleDown=true")
+	// These patches were eliminated by moving to proper Helm values:
+	// cgroupEntrypoint, operatorScaleDown, workerInitSkip, prologToBinTrue, procMountDefault
+	if p.Patches.CgroupEntrypoint {
+		t.Error("expected cgroupEntrypoint=false (handled by patched worker image)")
 	}
-	if !p.Patches.WorkerInitSkip {
-		t.Error("expected workerInitSkip=true")
-	}
-	if !p.Patches.PrologToBinTrue {
-		t.Error("expected prologToBinTrue=true")
-	}
-	if !p.Patches.ProcMountDefault {
-		t.Error("expected procMountDefault=true")
+	if p.Patches.OperatorScaleDown {
+		t.Error("expected operatorScaleDown=false (operator stays running)")
 	}
 	if p.Storage.Type != "hostPath" {
 		t.Errorf("expected storage type 'hostPath', got %q", p.Storage.Type)

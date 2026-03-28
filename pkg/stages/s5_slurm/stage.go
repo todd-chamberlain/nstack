@@ -98,44 +98,13 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 		engine.PlanHelmComponent(hc, "nodesets", "", soperatorVersion, slurmNamespace, nodesetsRelease),
 	)
 
-	// Plan patches.
+	// Plan patches — only the minimal runtime patches still needed.
 	if profile != nil {
-		if profile.Patches.CgroupEntrypoint {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "k3s-configmaps",
-				Description: "Create ConfigMaps for entrypoint fix and SPANK override",
-				Condition:   "patches.cgroupEntrypoint=true",
-			})
-		}
-		if profile.Patches.OperatorScaleDown {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "operator-scale-down",
-				Description: "Scale soperator-manager to 0 replicas",
-				Condition:   "patches.operatorScaleDown=true",
-			})
-		}
-		if profile.Patches.WorkerInitSkip {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "worker-init-skip",
-				Description: "Skip worker-gpu init container for topology",
-				Condition:   "patches.workerInitSkip=true",
-			})
-		}
-		if profile.Patches.ProcMountDefault {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "proc-mount-default",
-				Description: "Set NodeSet procMount to Default for K3s",
-				Condition:   "patches.procMountDefault=true",
-			})
-		}
-		if profile.Patches.PrologToBinTrue {
-			plan.Patches = append(plan.Patches, engine.PatchPlan{
-				Name:        "prolog-to-bin-true",
-				Description: "Set prolog/epilog to /bin/true (applied via Helm values)",
-				Condition:   "patches.prologToBinTrue=true",
-				Applied:     true, // Applied via slurm-cluster/k3s.yaml values, not a runtime patch
-			})
-		}
+		plan.Patches = append(plan.Patches, engine.PatchPlan{
+			Name:        "jail-populated-marker",
+			Description: "Ensure .populated marker exists in jail PVC",
+			Condition:   "always",
+		})
 		if profile.Patches.ContainerdSocketBind {
 			plan.Patches = append(plan.Patches, engine.PatchPlan{
 				Name:        "containerd-socket-bind",
@@ -202,9 +171,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				}
 			case "slurm-cluster":
 				// Wait for K8s API to stabilize after soperator install.
-				// The soperator deploys ~54 resources (kruise, webhooks, CRDs) which
-				// can overwhelm the K3s API server on single-node clusters.
-				printer.Debugf("waiting 30s for API server to stabilize after soperator install...")
+				printer.Debugf("waiting for API server to stabilize...")
 				for retry := 0; retry < 6; retry++ {
 					time.Sleep(5 * time.Second)
 					_, apiErr := kc.Clientset().Discovery().ServerVersion()
@@ -213,21 +180,8 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					}
 					printer.Debugf("API server not ready, retrying... (%v)", apiErr)
 				}
-				// Ensure soperator webhook is available (scale up if needed for validation).
-				if profile != nil && profile.Patches.OperatorScaleDown {
-					_ = kc.ScaleDeployment(ctx, soperatorNamespace, "soperator-manager", 1)
-					printer.Debugf("temporarily scaled soperator-manager to 1 for webhook")
-					// Wait briefly for the webhook endpoint to become available.
-					_ = kc.WaitForDeployment(ctx, soperatorNamespace, "soperator-manager", 60*time.Second)
-				}
 				err = installSlurmCluster(ctx, hc, site, profile, repoDir, printer)
 			case "nodesets":
-				// Create K3s ConfigMaps BEFORE nodesets (they're referenced by customVolumeMounts).
-				if profile != nil && profile.Patches.CgroupEntrypoint {
-					if cmErr := patchK3sConfigMaps(ctx, kc, printer); cmErr != nil {
-						printer.Debugf("creating K3s ConfigMaps (non-fatal): %v", cmErr)
-					}
-				}
 				err = installNodeSets(ctx, hc, site, profile, repoDir, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)
