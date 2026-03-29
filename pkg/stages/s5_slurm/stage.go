@@ -171,15 +171,15 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					err = installSoperator(ctx, hc, kc, profile, repoDir, overrides, printer)
 				}
 			case "slurm-cluster":
-				// Wait for K8s API to stabilize after soperator install.
-				printer.Debugf("waiting for API server to stabilize...")
-				for retry := 0; retry < 6; retry++ {
-					time.Sleep(5 * time.Second)
-					_, apiErr := kc.Clientset().Discovery().ServerVersion()
-					if apiErr == nil {
+				// Wait for soperator webhook to be ready (needs cert-manager cert).
+				printer.Debugf("waiting for soperator webhook...")
+				for retry := 0; retry < 30; retry++ {
+					eps, epErr := kc.Clientset().CoreV1().Endpoints(soperatorNamespace).Get(ctx, "soperator-webhook-service", metav1.GetOptions{})
+					if epErr == nil && len(eps.Subsets) > 0 && len(eps.Subsets[0].Addresses) > 0 {
+						printer.Debugf("webhook ready")
 						break
 					}
-					printer.Debugf("API server not ready, retrying... (%v)", apiErr)
+					time.Sleep(5 * time.Second)
 				}
 				err = installSlurmCluster(ctx, hc, site, profile, repoDir, printer)
 			case "nodesets":

@@ -296,6 +296,17 @@ func (c *Client) IsInstalled(releaseName, namespace string) (installed bool, ver
 	}
 
 	rel := releases[0]
+
+	// A failed or pending-install release should not be considered "installed".
+	// Uninstall it so the next deploy can do a clean install.
+	if rel.Info != nil && (rel.Info.Status == release.StatusFailed ||
+		rel.Info.Status == release.StatusPendingInstall ||
+		rel.Info.Status == release.StatusPendingUpgrade) {
+		uninstall := action.NewUninstall(cfg)
+		_, _ = uninstall.Run(releaseName)
+		return false, "", nil
+	}
+
 	if rel.Chart != nil && rel.Chart.Metadata != nil {
 		version = rel.Chart.Metadata.Version
 	}
