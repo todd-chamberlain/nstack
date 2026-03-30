@@ -8,6 +8,10 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/engine"
 )
 
+// soperatorNamespace is aliased from engine.SoperatorNamespace to avoid
+// hardcoding the namespace string in the operator list below.
+const soperatorNamespace = engine.SoperatorNamespace
+
 // knownOperator describes an operator we look for in the cluster.
 type knownOperator struct {
 	name       string
@@ -19,7 +23,7 @@ type knownOperator struct {
 var operators = []knownOperator{
 	{name: "gpu-operator", deployment: "gpu-operator", namespace: "gpu-operator"},
 	{name: "network-operator", deployment: "nvidia-network-operator", namespace: "network-operator"},
-	{name: "soperator", deployment: "soperator-manager", namespace: "soperator-system"},
+	{name: "soperator", deployment: "soperator-manager", namespace: soperatorNamespace},
 	{name: "cert-manager", deployment: "cert-manager", namespace: "cert-manager"},
 }
 

@@ -47,7 +47,7 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, site *config.Site,
 		mergedValues["operator"] = operatorVals
 	}
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		gpuOperatorRelease,
 		gpuOperatorChart,
@@ -57,9 +57,5 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, site *config.Site,
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing gpu-operator: %w", err)
-	}
-
-	return nil
+	)
 }

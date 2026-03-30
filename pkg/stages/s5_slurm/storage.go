@@ -29,18 +29,12 @@ func createStorage(ctx context.Context, kc *kube.Client, profile *config.Profile
 
 	switch sc.Type {
 	case "hostPath":
-		if err := createHostPathStorage(ctx, kc, sc.BasePath, profile, cluster, printer); err != nil {
-			return err
-		}
+		return createHostPathStorage(ctx, kc, sc.BasePath, profile, cluster, printer)
 	case "pvc":
-		if err := createDynamicStorage(ctx, kc, sc.StorageClass, cluster, printer); err != nil {
-			return err
-		}
+		return createDynamicStorage(ctx, kc, sc.StorageClass, cluster, printer)
 	default:
 		return fmt.Errorf("unsupported storage type: %s", sc.Type)
 	}
-
-	return nil
 }
 
 // createHostPathStorage creates static PV and PVC pairs backed by host directories.

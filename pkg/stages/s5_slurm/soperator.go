@@ -20,8 +20,6 @@ const (
 	soperatorRelease   = "soperator"
 	soperatorNamespace = engine.SoperatorNamespace
 	soperatorGitRepo   = "https://github.com/nebius/soperator.git"
-	soperatorGitTag    = "3.0.2"
-
 )
 
 // cloneSoperatorRepo clones the soperator repository at the specified tag and
@@ -185,7 +183,7 @@ func installSoperatorCRDs(ctx context.Context, kc *kube.Client, repoDir string, 
 // installSoperator deploys the soperator controller from the local chart in the
 // cloned repository. Values are loaded from embedded assets (common + distribution
 // overlay) and merged with any site overrides.
-func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, profile *config.Profile, repoDir string, overrides map[string]interface{}, printer *output.Printer) error {
+func installSoperator(ctx context.Context, hc *helm.Client, profile *config.Profile, repoDir string, overrides map[string]interface{}, printer *output.Printer) error {
 	chartDir := filepath.Join(repoDir, "helm", "soperator")
 
 	// Load and merge values: common -> distribution overlay -> site overrides.
@@ -201,7 +199,7 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 	// Override image registry if the profile specifies a custom one.
 	applyRegistryOverride(mergedValues, profile)
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		soperatorRelease,
 		chartDir, // local chart path
@@ -209,11 +207,7 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 		mergedValues,
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing soperator: %w", err)
-	}
-
-	return nil
+	)
 }
 
 // helmDepUpdate runs a Helm dependency update on a local chart directory.

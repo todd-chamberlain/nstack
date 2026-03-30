@@ -41,7 +41,7 @@ func installNetworkOperator(ctx context.Context, hc *helm.Client, site *config.S
 		return fmt.Errorf("loading network-operator values: %w", err)
 	}
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		networkOperatorRelease,
 		networkOperatorChart,
@@ -51,11 +51,7 @@ func installNetworkOperator(ctx context.Context, hc *helm.Client, site *config.S
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing network-operator: %w", err)
-	}
-
-	return nil
+	)
 }
 
 // fabricType returns the RDMA fabric type from site or profile configuration.

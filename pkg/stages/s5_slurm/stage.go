@@ -26,7 +26,7 @@ type SlurmStage struct {
 
 // New returns a new SlurmStage instance with default cluster identity.
 func New() *SlurmStage {
-	return &SlurmStage{cluster: config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}}
+	return &SlurmStage{cluster: config.ResolveCluster(nil)}
 }
 
 func (s *SlurmStage) Number() int         { return 5 }
@@ -143,7 +143,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 	if needsRepo {
 		var cleanup func()
 		var err error
-		gitTag := config.ResolveVersion(site, "soperator", soperatorGitTag)
+		gitTag := config.ResolveVersion(site, "soperator", soperatorVersion)
 		repoDir, cleanup, err = cloneSoperatorRepo(ctx, gitTag, printer)
 		if err != nil {
 			return fmt.Errorf("cloning soperator repo: %w", err)
@@ -176,7 +176,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					if site != nil && site.Overrides != nil {
 						overrides = site.Overrides["soperator"]
 					}
-					err = installSoperator(ctx, hc, kc, profile, repoDir, overrides, printer)
+					err = installSoperator(ctx, hc, profile, repoDir, overrides, printer)
 				}
 			case "slurm-cluster":
 				// Wait for soperator webhook to be ready (needs cert-manager cert).

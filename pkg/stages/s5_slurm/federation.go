@@ -9,7 +9,6 @@ import (
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -82,42 +81,34 @@ func exposeSlurmdbdOverTailscale(ctx context.Context, kc *kube.Client, site *con
 		return nil
 	}
 
-	// Patch the slurmdbd service to add Tailscale expose annotations.
-	svcGVR := schema.GroupVersionResource{Group: "", Version: "v1", Resource: "services"}
 	hostname := cluster.Name + "-slurmdbd"
 
-	patch := map[string]interface{}{
+	patchData, err := json.Marshal(map[string]interface{}{
 		"metadata": map[string]interface{}{
 			"annotations": map[string]interface{}{
 				"tailscale.com/expose":   "true",
 				"tailscale.com/hostname": hostname,
 			},
 		},
-	}
-
-	patchData, err := json.Marshal(patch)
+	})
 	if err != nil {
 		return fmt.Errorf("marshaling slurmdbd service patch: %w", err)
 	}
 
 	// Try to patch the slurmdbd service. The service name follows the soperator
 	// naming convention: <cluster-name>-slurmdbd or similar. Try common names.
+	svcClient := kc.Clientset().CoreV1().Services(cluster.Namespace)
 	svcNames := []string{
 		cluster.Name + "-slurmdbd",
 		"slurmdbd",
 	}
 
 	for _, svcName := range svcNames {
-		_, getErr := kc.Clientset().CoreV1().Services(cluster.Namespace).Get(ctx, svcName, metav1.GetOptions{})
-		if getErr != nil {
+		if _, err := svcClient.Get(ctx, svcName, metav1.GetOptions{}); err != nil {
 			continue
 		}
-
-		_, patchErr := kc.DynamicClient().Resource(svcGVR).Namespace(cluster.Namespace).Patch(
-			ctx, svcName, types.MergePatchType, patchData, metav1.PatchOptions{},
-		)
-		if patchErr != nil {
-			return fmt.Errorf("patching slurmdbd service %s for tailscale: %w", svcName, patchErr)
+		if _, err := svcClient.Patch(ctx, svcName, types.MergePatchType, patchData, metav1.PatchOptions{}); err != nil {
+			return fmt.Errorf("patching slurmdbd service %s for tailscale: %w", svcName, err)
 		}
 		printer.Debugf("exposed slurmdbd over Tailscale as %s", hostname)
 		return nil

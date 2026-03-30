@@ -36,7 +36,7 @@ func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *con
 		return fmt.Errorf("loading doca values: %w", err)
 	}
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		docaRelease,
 		docaChart,
@@ -46,11 +46,7 @@ func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *con
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing doca: %w", err)
-	}
-
-	return nil
+	)
 }
 
 // hasDPUs returns true if any node in the site config has DPU hardware.

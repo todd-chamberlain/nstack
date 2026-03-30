@@ -41,7 +41,7 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 	// Inject federation accounting config when configured.
 	applyFederationValues(mergedValues, site, cluster, printer)
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		slurmClusterRelease,
 		chartDir, // local chart path
@@ -49,11 +49,7 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 		mergedValues,
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(15*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing slurm-cluster: %w", err)
-	}
-
-	return nil
+	)
 }
 
 // applyFederationValues injects Slurm accounting and federation parameters into

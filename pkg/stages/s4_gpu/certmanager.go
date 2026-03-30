@@ -31,7 +31,7 @@ func installCertManager(ctx context.Context, hc *helm.Client, site *config.Site,
 		"installCRDs": true,
 	}
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		certManagerRelease,
 		certManagerChart,
@@ -41,9 +41,5 @@ func installCertManager(ctx context.Context, hc *helm.Client, site *config.Site,
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing cert-manager: %w", err)
-	}
-
-	return nil
+	)
 }

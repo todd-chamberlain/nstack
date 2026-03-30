@@ -36,7 +36,7 @@ func installKAIScheduler(ctx context.Context, hc *helm.Client, site *config.Site
 		values = helm.MergeValues(values, overrides)
 	}
 
-	err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		kaiSchedulerRelease,
 		kaiSchedulerChart,
@@ -47,9 +47,4 @@ func installKAIScheduler(ctx context.Context, hc *helm.Client, site *config.Site
 		helm.WithWait(),
 		helm.WithTimeout(5*time.Minute),
 	)
-	if err != nil {
-		return fmt.Errorf("installing KAI Scheduler: %w", err)
-	}
-
-	return nil
 }

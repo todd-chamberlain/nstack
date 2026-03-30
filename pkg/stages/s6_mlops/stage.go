@@ -21,7 +21,7 @@ type MLOpsStage struct {
 
 // New returns a new MLOpsStage instance with default cluster identity.
 func New() *MLOpsStage {
-	return &MLOpsStage{cluster: config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}}
+	return &MLOpsStage{cluster: config.ResolveCluster(nil)}
 }
 
 func (s *MLOpsStage) Number() int         { return 6 }

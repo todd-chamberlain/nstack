@@ -90,29 +90,17 @@ func (p *Pipeline) executeStage(ctx context.Context, opts RunOpts, s Stage, curr
 
 	p.printer.StageHeader(num, name)
 
-	// Check if already deployed and not forced.
+	// Read the current stage state (may be nil) and check if already deployed.
 	if mu != nil {
 		mu.Lock()
 	}
-	ss, ok := currentState.Stages[num]
+	currentStageState := currentState.Stages[num]
 	if mu != nil {
 		mu.Unlock()
 	}
-	if ok && ss.Status == "deployed" && !opts.Force {
+	if currentStageState != nil && currentStageState.Status == "deployed" && !opts.Force {
 		p.printer.Infof("  Stage %d already deployed, skipping (use --force to re-apply)", num)
 		return nil
-	}
-
-	// Get the current stage state (may be nil).
-	var currentStageState *state.StageState
-	if mu != nil {
-		mu.Lock()
-	}
-	if ss2, ok2 := currentState.Stages[num]; ok2 {
-		currentStageState = ss2
-	}
-	if mu != nil {
-		mu.Unlock()
 	}
 
 	// Plan.

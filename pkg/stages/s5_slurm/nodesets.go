@@ -38,16 +38,12 @@ func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, pr
 	// Override image registry if the profile specifies a custom one.
 	applyRegistryOverride(mergedValues, profile)
 
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		nodesetsRelease,
 		chartDir, // local chart path
 		cluster.Namespace,
 		mergedValues,
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing nodesets: %w", err)
-	}
-
-	return nil
+	)
 }

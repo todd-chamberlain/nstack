@@ -79,7 +79,7 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 	applyFederationTelemetry(mergedValues, site)
 
 	// 4. Install or upgrade the chart.
-	if err := hc.UpgradeOrInstall(
+	return hc.UpgradeOrInstall(
 		ctx,
 		monitoringRelease,
 		prometheusChart,
@@ -88,9 +88,5 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		helm.WithVersion(config.ResolveVersion(site, "monitoring", monitoringVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(10*time.Minute),
-	); err != nil {
-		return fmt.Errorf("installing kube-prometheus-stack: %w", err)
-	}
-
-	return nil
+	)
 }
