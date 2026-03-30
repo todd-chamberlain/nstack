@@ -198,6 +198,22 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				}
 				err = installSlurmCluster(ctx, hc, site, profile, repoDir, s.cluster, printer)
 			case "nodesets":
+				// Wait for SlurmCluster CR to be ready (webhook validates nodesets against it).
+				printer.Debugf("waiting for SlurmCluster CR to be accepted by webhook...")
+				for retry := 0; retry < 12; retry++ {
+					select {
+					case <-ctx.Done():
+						return ctx.Err()
+					default:
+					}
+					clusters, listErr := kc.Clientset().CoreV1().ConfigMaps(s.cluster.Namespace).List(ctx, metav1.ListOptions{
+						LabelSelector: "app.kubernetes.io/name=slurmcluster",
+					})
+					if listErr == nil && len(clusters.Items) > 0 {
+						break
+					}
+					time.Sleep(5 * time.Second)
+				}
 				err = installNodeSets(ctx, hc, site, profile, repoDir, s.cluster, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)

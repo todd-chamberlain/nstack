@@ -8,5 +8,5 @@ resources:
   limits:
     cpu: 2000m
     memory: 2Gi
-backendStore: "sqlite:///data/db/mlflow.db"
+backendStore: "sqlite:///data/mlflow.db"
 artifactRoot: "/data/artifacts"
