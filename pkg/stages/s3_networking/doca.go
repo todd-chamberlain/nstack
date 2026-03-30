@@ -42,7 +42,7 @@ func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *con
 		docaChart,
 		docaNamespace,
 		mergedValues,
-		helm.WithVersion(docaVersion),
+		helm.WithVersion(config.ResolveVersion(site, "doca", docaVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),

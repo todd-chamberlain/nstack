@@ -136,7 +136,8 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 	if needsRepo {
 		var err error
-		repoDir, err = cloneSoperatorRepo(ctx, printer)
+		gitTag := config.ResolveVersion(site, "soperator", soperatorGitTag)
+		repoDir, err = cloneSoperatorRepo(ctx, gitTag, printer)
 		if err != nil {
 			return fmt.Errorf("cloning soperator repo: %w", err)
 		}

@@ -49,7 +49,7 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		prometheusChart,
 		monitoringNS,
 		mergedValues,
-		helm.WithVersion(monitoringVersion),
+		helm.WithVersion(config.ResolveVersion(site, "monitoring", monitoringVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(10*time.Minute),
 	); err != nil {

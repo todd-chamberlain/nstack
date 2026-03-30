@@ -33,20 +33,20 @@ const (
 // cloneSoperatorRepo clones the soperator repository to a temporary directory at
 // the specified tag. Returns the path to the cloned repository directory.
 // The caller is responsible for cleaning up the returned directory with os.RemoveAll.
-func cloneSoperatorRepo(ctx context.Context, printer *output.Printer) (string, error) {
+func cloneSoperatorRepo(ctx context.Context, tag string, printer *output.Printer) (string, error) {
 	tmpDir, err := os.MkdirTemp("", "nstack-soperator-*")
 	if err != nil {
 		return "", fmt.Errorf("creating temp dir for soperator clone: %w", err)
 	}
 
-	printer.Debugf("cloning soperator %s to %s", soperatorGitTag, tmpDir)
+	printer.Debugf("cloning soperator %s to %s", tag, tmpDir)
 
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 
 	cmd := exec.CommandContext(cloneCtx, "git", "clone",
 		"--depth", "1",
-		"--branch", soperatorGitTag,
+		"--branch", tag,
 		soperatorGitRepo,
 		tmpDir,
 	)

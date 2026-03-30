@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/kube"
 	"github.com/todd-chamberlain/nstack/pkg/output"
@@ -19,7 +20,7 @@ const (
 // deployMetal3 installs the Metal3 Baremetal Operator via its Helm chart.
 // The baremetal-operator Helm chart is published at:
 // https://metal3-io.github.io/baremetal-operator
-func deployMetal3(ctx context.Context, hc *helm.Client, kc *kube.Client, printer *output.Printer) error {
+func deployMetal3(ctx context.Context, hc *helm.Client, kc *kube.Client, site *config.Site, printer *output.Printer) error {
 	printer.Debugf("deploying Metal3 Baremetal Operator v%s", metal3Version)
 
 	// Add the metal3 Helm chart repository.
@@ -45,7 +46,7 @@ func deployMetal3(ctx context.Context, hc *helm.Client, kc *kube.Client, printer
 		metal3Chart,
 		metal3Namespace,
 		values,
-		helm.WithVersion(metal3Version),
+		helm.WithVersion(config.ResolveVersion(site, "metal3", metal3Version)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),

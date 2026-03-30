@@ -82,13 +82,13 @@ func (s *GPUStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, 
 
 			switch comp.Name {
 			case "cert-manager":
-				err = installCertManager(ctx, hc, printer)
+				err = installCertManager(ctx, hc, site, printer)
 			case "gpu-operator":
 				var overrides map[string]interface{}
 				if site != nil && site.Overrides != nil {
 					overrides = site.Overrides["gpu-operator"]
 				}
-				err = installGPUOperator(ctx, hc, profile, overrides, printer)
+				err = installGPUOperator(ctx, hc, site, profile, overrides, printer)
 			case "kai-scheduler":
 				if site == nil || site.Overrides == nil {
 					printer.ComponentSkipped(idx, total, comp.Name, "", "no site overrides for kai-scheduler")
@@ -99,7 +99,7 @@ func (s *GPUStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, 
 					continue
 				}
 				overrides := site.Overrides["kai-scheduler"]
-				err = installKAIScheduler(ctx, hc, overrides, printer)
+				err = installKAIScheduler(ctx, hc, site, overrides, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)
 			}

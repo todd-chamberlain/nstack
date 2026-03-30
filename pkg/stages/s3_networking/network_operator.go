@@ -47,7 +47,7 @@ func installNetworkOperator(ctx context.Context, hc *helm.Client, site *config.S
 		networkOperatorChart,
 		networkOperatorNamespace,
 		mergedValues,
-		helm.WithVersion(networkOperatorVersion),
+		helm.WithVersion(config.ResolveVersion(site, "network-operator", networkOperatorVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),

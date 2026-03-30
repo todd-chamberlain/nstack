@@ -95,7 +95,7 @@ func (s *ProvisionStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Cl
 			switch comp.Name {
 			case "baremetal-operator":
 				printer.ComponentStart(idx, total, comp.Name, comp.Version, "installing")
-				err = deployMetal3(ctx, hc, kc, printer)
+				err = deployMetal3(ctx, hc, kc, site, printer)
 
 			case "baremetalhosts":
 				if site == nil || len(site.Nodes) == 0 {

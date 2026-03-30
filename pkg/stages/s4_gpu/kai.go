@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
@@ -18,7 +19,7 @@ const (
 
 // installKAIScheduler deploys the NVIDIA KAI Scheduler for GPU-aware
 // multi-tenant workload scheduling.
-func installKAIScheduler(ctx context.Context, hc *helm.Client, overrides map[string]interface{}, printer *output.Printer) error {
+func installKAIScheduler(ctx context.Context, hc *helm.Client, site *config.Site, overrides map[string]interface{}, printer *output.Printer) error {
 	printer.Debugf("installing %s", kaiSchedulerRelease)
 
 	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
@@ -41,7 +42,7 @@ func installKAIScheduler(ctx context.Context, hc *helm.Client, overrides map[str
 		kaiSchedulerChart,
 		kaiSchedulerNamespace,
 		values,
-		helm.WithVersion(kaiSchedulerVersion),
+		helm.WithVersion(config.ResolveVersion(site, "kai-scheduler", kaiSchedulerVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(5*time.Minute),
