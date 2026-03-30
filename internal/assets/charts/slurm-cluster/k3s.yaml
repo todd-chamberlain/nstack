@@ -8,6 +8,8 @@ customSlurmConfig: |
   SuspendTime=-1
   SuspendProgram=/bin/true
   ResumeProgram=/bin/true
+  HealthCheckProgram=/bin/true
+  HealthCheckInterval=0
 
 customCgroupConfig: |
   CgroupPlugin=disabled

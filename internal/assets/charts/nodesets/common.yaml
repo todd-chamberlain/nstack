@@ -21,7 +21,8 @@ nodesets:
       features:
         - gpu
         - cuda
-      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=8 ThreadsPerCore=2"
+      # Override via site config: overrides.nodesets[0].nodeConfig.static
+      static: "Boards=1 SocketsPerBoard=1 CoresPerSocket=8 ThreadsPerCore=1"
       dynamic: "InstanceId={{ .PodName }}"
       gresConfig:
         - "AutoDetect=nvidia"
