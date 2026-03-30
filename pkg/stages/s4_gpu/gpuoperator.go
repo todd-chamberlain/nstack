@@ -37,6 +37,16 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Pr
 		return fmt.Errorf("loading gpu-operator values: %w", err)
 	}
 
+	// Override the default runtime class if the profile specifies one.
+	if profile != nil && profile.Kubernetes.RuntimeClass != "" {
+		operatorVals, ok := mergedValues["operator"].(map[string]interface{})
+		if !ok {
+			operatorVals = make(map[string]interface{})
+		}
+		operatorVals["defaultRuntime"] = profile.Kubernetes.RuntimeClass
+		mergedValues["operator"] = operatorVals
+	}
+
 	if err := hc.UpgradeOrInstall(
 		ctx,
 		gpuOperatorRelease,

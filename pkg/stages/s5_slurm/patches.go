@@ -30,12 +30,13 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 	// Ensure .populated marker exists in the jail PVC.
 	// The populate-jail job exits early when the jail already has data
 	// but doesn't create the marker, which blocks sconfigcontroller's init.
-	patchJailPopulatedMarker(ctx, kc, printer)
-	printer.PatchApplied("jail-populated-marker")
+	if patchJailPopulatedMarker(ctx, kc, printer) {
+		printer.PatchApplied("jail-populated-marker")
+	}
 
 	// Bind-mount K3s containerd socket for kruise-daemon.
 	if profile.Patches.ContainerdSocketBind {
-		if err := patchContainerdSocketBind(ctx, kc, printer); err != nil {
+		if err := patchContainerdSocketBind(ctx, kc, profile.Kubernetes.ContainerdSocket, printer); err != nil {
 			printer.Debugf("containerd socket bind (non-fatal): %v", err)
 		} else {
 			printer.PatchApplied("containerd-socket-bind")
@@ -46,7 +47,7 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 }
 
 // patchJailPopulatedMarker creates the .populated marker in the jail PVC.
-func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *output.Printer) {
+func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *output.Printer) bool {
 	targets := []struct{ pod, container string }{
 		{"controller-0", "slurmctld"},
 		{"login-0", "sshd"},
@@ -62,20 +63,25 @@ func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *out
 			printer.Debugf("jail marker on %s (non-fatal): %s: %v", t.pod, string(out), err)
 		} else {
 			printer.Debugf("created .populated marker via %s", t.pod)
-			return
+			return true
 		}
 	}
+	return false
 }
 
 // patchContainerdSocketBind creates the bind-mount from the K3s containerd socket
 // to the standard path expected by kruise-daemon, with a systemd mount unit for
-// boot persistence.
-func patchContainerdSocketBind(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+// boot persistence. If containerdSocket is empty, it falls back to the default
+// K3s socket path.
+func patchContainerdSocketBind(ctx context.Context, kc *kube.Client, containerdSocket string, printer *output.Printer) error {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("containerd socket bind requires root privileges (run with sudo)")
 	}
 
-	k3sSocket := "/run/k3s/containerd/containerd.sock"
+	k3sSocket := containerdSocket
+	if k3sSocket == "" {
+		k3sSocket = "/run/k3s/containerd/containerd.sock"
+	}
 	stdSocket := "/run/containerd/containerd.sock"
 
 	cmds := [][]string{
@@ -95,20 +101,20 @@ func patchContainerdSocketBind(ctx context.Context, kc *kube.Client, printer *ou
 		}
 	}
 
-	mountUnit := `[Unit]
+	mountUnit := fmt.Sprintf(`[Unit]
 Description=Bind mount K3s containerd socket for kruise-daemon
 After=k3s.service
 Requires=k3s.service
 
 [Mount]
-What=/run/k3s/containerd/containerd.sock
-Where=/run/containerd/containerd.sock
+What=%s
+Where=%s
 Type=none
 Options=bind
 
 [Install]
 WantedBy=multi-user.target
-`
+`, k3sSocket, stdSocket)
 	unitPath := "/etc/systemd/system/run-containerd-containerd.sock.mount"
 	writeCmd := exec.CommandContext(ctx, "bash", "-c",
 		fmt.Sprintf("echo '%s' > %s && systemctl daemon-reload && systemctl enable run-containerd-containerd.sock.mount",

@@ -40,6 +40,9 @@ func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, pr
 		return fmt.Errorf("loading nodesets values: %w", err)
 	}
 
+	// Override image registry if the profile specifies a custom one.
+	applyRegistryOverride(mergedValues, profile)
+
 	if err := hc.UpgradeOrInstall(
 		ctx,
 		nodesetsRelease,

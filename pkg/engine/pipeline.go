@@ -53,6 +53,14 @@ func (p *Pipeline) Run(ctx context.Context, opts RunOpts) error {
 		return fmt.Errorf("loading state: %w", err)
 	}
 
+	// Populate top-level site and profile identifiers for status tracking.
+	if opts.Site != nil {
+		currentState.Site = opts.Site.Name
+	}
+	if opts.Profile != nil {
+		currentState.Profile = opts.Profile.Name
+	}
+
 	// Resolve which stages to run.
 	stages, err := p.registry.Resolve(opts.ResolveOpts, currentState)
 	if err != nil {
@@ -113,11 +121,19 @@ func (p *Pipeline) Run(ctx context.Context, opts RunOpts) error {
 			return fmt.Errorf("applying stage %d (%s): %w", num, name, err)
 		}
 
-		// Record success in state.
+		// Record success in state, including per-component versions.
+		components := make(map[string]*state.ComponentState)
+		for _, comp := range plan.Components {
+			components[comp.Name] = &state.ComponentState{
+				Version: comp.Version,
+				Status:  comp.Action,
+			}
+		}
 		currentState.Stages[num] = &state.StageState{
-			Status:  "deployed",
-			Version: plan.Name,
-			Applied: time.Now(),
+			Status:     "deployed",
+			Version:    plan.Name,
+			Applied:    time.Now(),
+			Components: components,
 		}
 		if err := p.store.Save(ctx, currentState); err != nil {
 			return fmt.Errorf("saving state after stage %d: %w", num, err)

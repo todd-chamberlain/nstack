@@ -267,7 +267,7 @@ func (s *SlurmStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 	// starting point, then overrides the status for intentional scale-down.
 	sopStatus := engine.CheckDeploymentStatus(ctx, cs, soperatorNamespace, "soperator-manager", "soperator")
 	if sopStatus.Status == "degraded" {
-		// Scale-down to 0 is intentional when patches.operatorScaleDown is set.
+		// Scale-down to 0 may be intentional (e.g., manual operator pause).
 		dep, err := cs.AppsV1().Deployments(soperatorNamespace).Get(ctx, "soperator-manager", metav1.GetOptions{})
 		if err == nil {
 			desired := int32(1)

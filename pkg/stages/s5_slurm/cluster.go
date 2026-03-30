@@ -39,6 +39,9 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 		return fmt.Errorf("loading slurm-cluster values: %w", err)
 	}
 
+	// Override image registry if the profile specifies a custom one.
+	applyRegistryOverride(mergedValues, profile)
+
 	if err := hc.UpgradeOrInstall(
 		ctx,
 		slurmClusterRelease,

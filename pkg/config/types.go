@@ -99,6 +99,10 @@ type Profile struct {
 type ProfileKubernetes struct {
 	Distribution     string `yaml:"distribution"`     // k3s, kubeadm, managed, eks, gke, aks
 	MultiNode        bool   `yaml:"multiNode"`
+	// CgroupV2 indicates whether the target uses cgroup v2. This is used by
+	// the profile YAML selection logic — when true and distribution is k3s,
+	// the k3s.yaml overlay supplies customCgroupConfig with CgroupPlugin=disabled.
+	// No additional Go-level branching is needed.
 	CgroupV2         bool   `yaml:"cgroupV2"`
 	ContainerdSocket string `yaml:"containerdSocket"`
 	StorageClass     string `yaml:"storageClass"`

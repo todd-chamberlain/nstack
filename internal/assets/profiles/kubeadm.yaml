@@ -8,11 +8,7 @@ kubernetes:
   storageClass: ""
   runtimeClass: nvidia
 patches:
-  cgroupEntrypoint: false
-  operatorScaleDown: false
-  workerInitSkip: false
-  prologToBinTrue: false
-  procMountDefault: false
+  containerdSocketBind: false
 storage:
   type: pvc
 networking:
