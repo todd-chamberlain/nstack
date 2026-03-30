@@ -111,14 +111,16 @@ func soperatorCacheDir(tag string) (string, error) {
 // repo exists, HEAD is not corrupt, and helm dependencies have been built
 // for the soperator chart.
 func isCacheValid(dir string, expectedTag string) bool {
-	headPath := filepath.Join(dir, ".git", "HEAD")
-	data, err := os.ReadFile(headPath)
-	if err != nil {
-		return false
-	}
-	// If HEAD is empty or corrupt, invalidate.
-	if len(strings.TrimSpace(string(data))) < 10 {
-		return false
+	// Verify the cache directory was cloned at the expected tag by checking
+	// that a tag ref file exists for it.
+	tagRefPath := filepath.Join(dir, ".git", "refs", "tags", expectedTag)
+	if _, err := os.Stat(tagRefPath); err != nil {
+		// Detached HEAD clones may not have refs/tags — fall back to checking HEAD exists
+		headPath := filepath.Join(dir, ".git", "HEAD")
+		data, err := os.ReadFile(headPath)
+		if err != nil || len(strings.TrimSpace(string(data))) < 10 {
+			return false
+		}
 	}
 	// Soperator chart must have its dependencies (kruise) already built.
 	chartsDir := filepath.Join(dir, "helm", "soperator", "charts")
