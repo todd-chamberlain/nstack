@@ -71,10 +71,10 @@ func TestCreateStorage_HostPath(t *testing.T) {
 		t.Errorf("jail-pv: expected path=/storage/test-slurm/jail, got %s", jailPV.Spec.HostPath.Path)
 	}
 
-	// Verify jail-pvc has ReadWriteMany access mode.
+	// Verify jail-pvc has ReadWriteOnce access mode (hostPath cannot do RWX on multi-node).
 	jailPVC, _ := cs.CoreV1().PersistentVolumeClaims(slurmNamespace).Get(ctx, "jail-pvc", metav1.GetOptions{})
-	if len(jailPVC.Spec.AccessModes) == 0 || jailPVC.Spec.AccessModes[0] != corev1.ReadWriteMany {
-		t.Errorf("jail-pvc: expected access mode ReadWriteMany")
+	if len(jailPVC.Spec.AccessModes) == 0 || jailPVC.Spec.AccessModes[0] != corev1.ReadWriteOnce {
+		t.Errorf("jail-pvc: expected access mode ReadWriteOnce")
 	}
 }
 

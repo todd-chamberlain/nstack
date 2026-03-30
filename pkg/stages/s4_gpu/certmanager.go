@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
@@ -19,7 +20,7 @@ const (
 )
 
 // installCertManager deploys cert-manager via its Helm chart.
-func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Printer) error {
+func installCertManager(ctx context.Context, hc *helm.Client, site *config.Site, printer *output.Printer) error {
 	printer.Debugf("installing %s", certManagerRelease)
 
 	if err := hc.AddRepo(certManagerRepoName, certManagerRepo); err != nil {
@@ -36,7 +37,7 @@ func installCertManager(ctx context.Context, hc *helm.Client, printer *output.Pr
 		certManagerChart,
 		certManagerNamespace,
 		values,
-		helm.WithVersion(certManagerVersion),
+		helm.WithVersion(config.ResolveVersion(site, "cert-manager", certManagerVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),

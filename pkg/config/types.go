@@ -16,6 +16,7 @@ type Site struct {
 	Nodes      []Node                            `yaml:"nodes,omitempty"`
 	Overrides  map[string]map[string]interface{} `yaml:"overrides,omitempty"`
 	Hooks      map[string]*HookConfig            `yaml:"hooks,omitempty"`
+	Versions   map[string]string                 `yaml:"versions,omitempty"`
 }
 
 // OverlayConfig defines network overlay settings for cross-node communication.

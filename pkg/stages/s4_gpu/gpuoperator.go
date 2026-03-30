@@ -20,7 +20,7 @@ const (
 // installGPUOperator deploys the NVIDIA GPU Operator via its Helm chart.
 // Values are loaded from embedded assets (common + distribution overlay)
 // and merged with any user-provided site overrides.
-func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Profile, overrides map[string]interface{}, printer *output.Printer) error {
+func installGPUOperator(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, overrides map[string]interface{}, printer *output.Printer) error {
 	printer.Debugf("installing %s", gpuOperatorRelease)
 
 	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
@@ -53,7 +53,7 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, profile *config.Pr
 		gpuOperatorChart,
 		gpuOperatorNamespace,
 		mergedValues,
-		helm.WithVersion(gpuOperatorVersion),
+		helm.WithVersion(config.ResolveVersion(site, "gpu-operator", gpuOperatorVersion)),
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(10*time.Minute),

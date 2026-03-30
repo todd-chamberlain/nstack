@@ -32,7 +32,7 @@ func createStorage(ctx context.Context, kc *kube.Client, profile *config.Profile
 
 	switch sc.Type {
 	case "hostPath":
-		if err := createHostPathStorage(ctx, kc, sc.BasePath, printer); err != nil {
+		if err := createHostPathStorage(ctx, kc, sc.BasePath, profile, printer); err != nil {
 			return err
 		}
 	case "pvc":
@@ -47,7 +47,11 @@ func createStorage(ctx context.Context, kc *kube.Client, profile *config.Profile
 }
 
 // createHostPathStorage creates static PV and PVC pairs backed by host directories.
-func createHostPathStorage(ctx context.Context, kc *kube.Client, basePath string, printer *output.Printer) error {
+func createHostPathStorage(ctx context.Context, kc *kube.Client, basePath string, profile *config.Profile, printer *output.Printer) error {
+	if profile != nil && profile.Kubernetes.MultiNode {
+		printer.Infof("[WARNING] hostPath storage is not suitable for multi-node clusters; consider using PVC-based shared storage")
+	}
+
 	cs := kc.Clientset()
 
 	// Controller spool PV + PVC.
@@ -64,16 +68,16 @@ func createHostPathStorage(ctx context.Context, kc *kube.Client, basePath string
 	}
 	printer.Debugf("created PVC controller-spool-pvc")
 
-	// Jail PV + PVC.
+	// Jail PV + PVC (ReadWriteOnce — hostPath volumes cannot be shared across nodes).
 	jailPath := basePath + "/jail"
 	if err := ensureHostPathPV(ctx, cs, "jail-pv", slurmNamespace, jailPath,
-		resource.MustParse("50Gi"), corev1.ReadWriteMany); err != nil {
+		resource.MustParse("50Gi"), corev1.ReadWriteOnce); err != nil {
 		return fmt.Errorf("creating jail PV: %w", err)
 	}
 	printer.Debugf("created PV jail-pv at %s", jailPath)
 
 	if err := ensurePVC(ctx, cs, "jail-pvc", slurmNamespace, "jail-pv", "",
-		resource.MustParse("50Gi"), corev1.ReadWriteMany); err != nil {
+		resource.MustParse("50Gi"), corev1.ReadWriteOnce); err != nil {
 		return fmt.Errorf("creating jail PVC: %w", err)
 	}
 	printer.Debugf("created PVC jail-pvc")
