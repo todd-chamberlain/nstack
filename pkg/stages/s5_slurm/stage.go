@@ -3,7 +3,6 @@ package s5_slurm
 import (
 	"context"
 	"fmt"
-	"os"
 	"os/exec"
 	"time"
 
@@ -142,14 +141,15 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 	}
 
 	if needsRepo {
+		var cleanup func()
 		var err error
 		gitTag := config.ResolveVersion(site, "soperator", soperatorGitTag)
-		repoDir, err = cloneSoperatorRepo(ctx, gitTag, printer)
+		repoDir, cleanup, err = cloneSoperatorRepo(ctx, gitTag, printer)
 		if err != nil {
 			return fmt.Errorf("cloning soperator repo: %w", err)
 		}
-		defer os.RemoveAll(repoDir)
-		printer.Debugf("soperator repo cloned to %s", repoDir)
+		defer cleanup()
+		printer.Debugf("soperator repo at %s", repoDir)
 	}
 
 	total := len(plan.Components)
@@ -236,15 +236,20 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				// Clear stale node_state from the controller spool PVC.
 				// Previous deploys may have saved state with different CPU topology
 				// which causes INVALID_REG on the next deploy.
-				execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-				defer cancel()
-				clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", s.cluster.Namespace,
-					"controller-0", "-c", "slurmctld", "--",
-					"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
-				if out, err := clearCmd.CombinedOutput(); err != nil {
-					printer.Debugf("spool cleanup (non-fatal): %s: %v", string(out), err)
+				ctrlPod, ctrlErr := findPodByLabel(ctx, cs, s.cluster.Namespace, "app.kubernetes.io/component=controller")
+				if ctrlErr != nil {
+					printer.Debugf("spool cleanup skipped (no controller pod): %v", ctrlErr)
 				} else {
-					printer.Debugf("cleared stale slurmctld state")
+					execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+					defer cancel()
+					clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", s.cluster.Namespace,
+						ctrlPod, "-c", "slurmctld", "--",
+						"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
+					if out, err := clearCmd.CombinedOutput(); err != nil {
+						printer.Debugf("spool cleanup (non-fatal): %s: %v", string(out), err)
+					} else {
+						printer.Debugf("cleared stale slurmctld state")
+					}
 				}
 
 				break
@@ -303,7 +308,7 @@ func (s *SlurmStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 
 	// Check worker pods.
 	status.Components = append(status.Components,
-		checkPodGroupStatus(ctx, cs, s.cluster.Namespace, "app.kubernetes.io/component=worker", "worker-gpu"))
+		checkPodGroupStatus(ctx, cs, s.cluster.Namespace, "app.kubernetes.io/component=worker", "workers"))
 
 	status.Status = engine.DetermineOverallStatus(status.Components)
 

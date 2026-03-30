@@ -24,16 +24,62 @@ const (
 
 )
 
-// cloneSoperatorRepo clones the soperator repository to a temporary directory at
-// the specified tag. Returns the path to the cloned repository directory.
-// The caller is responsible for cleaning up the returned directory with os.RemoveAll.
-func cloneSoperatorRepo(ctx context.Context, tag string, printer *output.Printer) (string, error) {
-	tmpDir, err := os.MkdirTemp("", "nstack-soperator-*")
-	if err != nil {
-		return "", fmt.Errorf("creating temp dir for soperator clone: %w", err)
+// cloneSoperatorRepo clones the soperator repository at the specified tag and
+// returns the path to the cloned directory along with a cleanup function.
+//
+// Clones are cached under ~/.nstack/cache/soperator/<tag>/ so that subsequent
+// deploys of the same version skip the git clone and helm dep update steps.
+// The cleanup function is a no-op for cached directories and removes the
+// directory only when using a temp-dir fallback.
+func cloneSoperatorRepo(ctx context.Context, tag string, printer *output.Printer) (string, func(), error) {
+	noop := func() {}
+
+	// Try cache path first.
+	cacheDir, cacheErr := soperatorCacheDir(tag)
+	if cacheErr == nil {
+		if isCacheValid(cacheDir) {
+			printer.Debugf("using cached soperator %s", tag)
+			return cacheDir, noop, nil
+		}
+
+		// Cache miss — clone into cache dir.
+		os.RemoveAll(cacheDir)
+		if err := os.MkdirAll(filepath.Dir(cacheDir), 0755); err == nil {
+			if err := gitClone(ctx, tag, cacheDir, printer); err != nil {
+				os.RemoveAll(cacheDir)
+				// Fall through to temp-dir fallback.
+			} else {
+				if err := helmDepUpdateAll(cacheDir, printer); err != nil {
+					os.RemoveAll(cacheDir)
+					return "", noop, fmt.Errorf("helm dep update in cached clone: %w", err)
+				}
+				return cacheDir, noop, nil
+			}
+		}
 	}
 
-	printer.Debugf("cloning soperator %s to %s", tag, tmpDir)
+	// Fallback: clone to a temp directory (cleaned up by caller).
+	tmpDir, err := os.MkdirTemp("", "nstack-soperator-*")
+	if err != nil {
+		return "", noop, fmt.Errorf("creating temp dir for soperator clone: %w", err)
+	}
+
+	if err := gitClone(ctx, tag, tmpDir, printer); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", noop, fmt.Errorf("cloning soperator repo: %w", err)
+	}
+	if err := helmDepUpdateAll(tmpDir, printer); err != nil {
+		os.RemoveAll(tmpDir)
+		return "", noop, fmt.Errorf("helm dep update in temp clone: %w", err)
+	}
+
+	return tmpDir, func() { os.RemoveAll(tmpDir) }, nil
+}
+
+// gitClone performs a shallow git clone of the soperator repo at the given tag
+// into destDir.
+func gitClone(ctx context.Context, tag, destDir string, printer *output.Printer) error {
+	printer.Debugf("cloning soperator %s to %s", tag, destDir)
 
 	cloneCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
@@ -42,17 +88,61 @@ func cloneSoperatorRepo(ctx context.Context, tag string, printer *output.Printer
 		"--depth", "1",
 		"--branch", tag,
 		soperatorGitRepo,
-		tmpDir,
+		destDir,
 	)
 	cmd.Stdout = os.Stderr
 	cmd.Stderr = os.Stderr
 
 	if err := cmd.Run(); err != nil {
-		os.RemoveAll(tmpDir)
-		return "", fmt.Errorf("cloning soperator repo: %w", err)
+		return fmt.Errorf("cloning soperator repo: %w", err)
 	}
+	return nil
+}
 
-	return tmpDir, nil
+// soperatorCacheDir returns the cache directory path for a given soperator tag.
+func soperatorCacheDir(tag string) (string, error) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".nstack", "cache", "soperator", tag), nil
+}
+
+// isCacheValid checks that a cached clone directory looks complete: the git
+// repo exists and helm dependencies have been built for the soperator chart.
+func isCacheValid(dir string) bool {
+	if _, err := os.Stat(filepath.Join(dir, ".git", "HEAD")); err != nil {
+		return false
+	}
+	// Soperator chart must have its dependencies (kruise) already built.
+	_, err := os.Stat(filepath.Join(dir, "helm", "soperator", "charts"))
+	return err == nil
+}
+
+// helmDepUpdateAll runs helm dep update on every chart sub-directory in the
+// cloned soperator repo that has a Chart.yaml. This is called once per fresh
+// clone so that cached repos are fully ready to use.
+func helmDepUpdateAll(repoDir string, printer *output.Printer) error {
+	chartDirs := []string{
+		filepath.Join(repoDir, "helm", "soperator"),
+		filepath.Join(repoDir, "helm", "slurm-cluster"),
+		filepath.Join(repoDir, "helm", "nodesets"),
+	}
+	for _, dir := range chartDirs {
+		// Only run if the chart directory exists and has a Chart.yaml.
+		if _, err := os.Stat(filepath.Join(dir, "Chart.yaml")); err != nil {
+			continue
+		}
+		if err := helmDepUpdate(dir); err != nil {
+			// nodesets may not have dependencies; log but don't fail for it.
+			if filepath.Base(dir) == "nodesets" {
+				printer.Debugf("helm dep update for nodesets (non-fatal): %v", err)
+				continue
+			}
+			return fmt.Errorf("helm dep update for %s: %w", filepath.Base(dir), err)
+		}
+	}
+	return nil
 }
 
 // installSoperatorCRDs applies CRD definitions from the cloned soperator repo.
@@ -96,11 +186,7 @@ func installSoperatorCRDs(ctx context.Context, kc *kube.Client, repoDir string, 
 // cloned repository. Values are loaded from embedded assets (common + distribution
 // overlay) and merged with any site overrides.
 func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, profile *config.Profile, repoDir string, overrides map[string]interface{}, printer *output.Printer) error {
-	// Run helm dependency update on the soperator chart.
 	chartDir := filepath.Join(repoDir, "helm", "soperator")
-	if err := helmDepUpdate(chartDir); err != nil {
-		return fmt.Errorf("helm dep update for soperator: %w", err)
-	}
 
 	// Load and merge values: common -> distribution overlay -> site overrides.
 	var distribution string

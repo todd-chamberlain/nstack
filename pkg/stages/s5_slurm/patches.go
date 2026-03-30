@@ -49,23 +49,25 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 
 // patchJailPopulatedMarker creates the .populated marker in the jail PVC.
 func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, namespace string, printer *output.Printer) bool {
-	targets := []struct{ pod, container string }{
-		{"controller-0", "slurmctld"},
-		{"login-0", "sshd"},
+	// Try controller first, then login — discovered by label rather than hardcoded name.
+	selectors := []struct{ label, container string }{
+		{"app.kubernetes.io/component=controller", "slurmctld"},
+		{"app.kubernetes.io/component=login", "sshd"},
 	}
 	cs := kc.Clientset()
-	for _, t := range targets {
-		if _, err := cs.CoreV1().Pods(namespace).Get(ctx, t.pod, metav1.GetOptions{}); err != nil {
+	for _, sel := range selectors {
+		podName, err := findPodByLabel(ctx, cs, namespace, sel.label)
+		if err != nil {
 			continue
 		}
 		execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		cmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", namespace,
-			t.pod, "-c", t.container, "--", "touch", "/mnt/jail/.populated")
+			podName, "-c", sel.container, "--", "touch", "/mnt/jail/.populated")
 		if out, err := cmd.CombinedOutput(); err != nil {
-			printer.Debugf("jail marker on %s (non-fatal): %s: %v", t.pod, string(out), err)
+			printer.Debugf("jail marker on %s (non-fatal): %s: %v", podName, string(out), err)
 			cancel()
 		} else {
-			printer.Debugf("created .populated marker via %s", t.pod)
+			printer.Debugf("created .populated marker via %s", podName)
 			cancel()
 			return true
 		}

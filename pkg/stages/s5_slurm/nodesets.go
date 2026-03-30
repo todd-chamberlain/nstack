@@ -19,12 +19,7 @@ const (
 // repository. Values are loaded from embedded common.yaml and merged with
 // any site overrides.
 func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, cluster config.ClusterConfig, printer *output.Printer) error {
-	// Run helm dependency update on the nodesets chart.
 	chartDir := filepath.Join(repoDir, "helm", "nodesets")
-	if err := helmDepUpdate(chartDir); err != nil {
-		// nodesets may not have dependencies; log but don't fail.
-		printer.Debugf("helm dep update for nodesets (non-fatal): %v", err)
-	}
 
 	// Load and merge values: common -> distribution overlay -> site overrides.
 	var distribution string
