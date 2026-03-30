@@ -53,6 +53,9 @@ type ResolveOpts struct {
 // It validates that every dependency for each resolved stage is either
 // included in the resolved set or already deployed in currentState.
 func (r *Registry) Resolve(opts ResolveOpts, currentState *state.State) ([]Stage, error) {
+	if currentState == nil {
+		currentState = &state.State{Stages: make(map[int]*state.StageState)}
+	}
 	var selected []Stage
 
 	switch {

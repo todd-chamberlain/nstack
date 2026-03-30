@@ -30,7 +30,7 @@ func applyRegistryOverride(values map[string]interface{}, profile *config.Profil
 			continue
 		}
 		for _, prefix := range defaultRegistries {
-			str = strings.Replace(str, prefix, profile.Images.Registry+"/", 1)
+			str = strings.Replace(str, prefix, strings.TrimRight(profile.Images.Registry, "/")+"/", 1)
 		}
 		images[key] = str
 	}

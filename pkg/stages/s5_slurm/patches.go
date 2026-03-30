@@ -116,11 +116,17 @@ Options=bind
 WantedBy=multi-user.target
 `, k3sSocket, stdSocket)
 	unitPath := "/etc/systemd/system/run-containerd-containerd.sock.mount"
-	writeCmd := exec.CommandContext(ctx, "bash", "-c",
-		fmt.Sprintf("echo '%s' > %s && systemctl daemon-reload && systemctl enable run-containerd-containerd.sock.mount",
-			mountUnit, unitPath))
-	if out, err := writeCmd.CombinedOutput(); err != nil {
-		printer.Debugf("systemd mount unit (non-fatal): %s: %v", string(out), err)
+	if err := os.WriteFile(unitPath, []byte(mountUnit), 0644); err != nil {
+		printer.Debugf("writing systemd mount unit (non-fatal): %v", err)
+	} else {
+		reloadCmd := exec.CommandContext(ctx, "systemctl", "daemon-reload")
+		if out, err := reloadCmd.CombinedOutput(); err != nil {
+			printer.Debugf("systemctl daemon-reload (non-fatal): %s: %v", string(out), err)
+		}
+		enableCmd := exec.CommandContext(ctx, "systemctl", "enable", "run-containerd-containerd.sock.mount")
+		if out, err := enableCmd.CombinedOutput(); err != nil {
+			printer.Debugf("systemctl enable (non-fatal): %s: %v", string(out), err)
+		}
 	}
 
 	cs := kc.Clientset()
