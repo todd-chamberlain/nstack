@@ -171,7 +171,7 @@ func TestCreateStorage_DefaultProfile(t *testing.T) {
 	printer := output.New("text", true, true)
 	ctx := context.Background()
 
-	// nil profile should use defaults (hostPath, /storage/slurm).
+	// nil profile should use defaults (hostPath, /var/lib/nstack/slurm).
 	err := createStorage(ctx, kc, nil, printer)
 	if err != nil {
 		t.Fatalf("createStorage with nil profile: %v", err)
@@ -182,8 +182,8 @@ func TestCreateStorage_DefaultProfile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("controller-spool-pv not created: %v", err)
 	}
-	if spoolPV.Spec.HostPath.Path != "/storage/slurm/controller-spool" {
-		t.Errorf("expected default path /storage/slurm/controller-spool, got %s", spoolPV.Spec.HostPath.Path)
+	if spoolPV.Spec.HostPath.Path != "/var/lib/nstack/slurm/controller-spool" {
+		t.Errorf("expected default path /var/lib/nstack/slurm/controller-spool, got %s", spoolPV.Spec.HostPath.Path)
 	}
 }
 

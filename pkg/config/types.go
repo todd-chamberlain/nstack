@@ -140,11 +140,12 @@ type StorageConfig struct {
 }
 
 // ResolveStorage returns a StorageConfig with defaults applied from the profile.
-// The defaults are: type="hostPath", basePath="/storage/slurm", storageClass="".
+// The defaults are: type="hostPath", basePath="/var/lib/nstack/slurm", storageClass="".
+// The basePath default matches the k3s-single profile (internal/assets/profiles/k3s-single.yaml).
 func ResolveStorage(profile *Profile) StorageConfig {
 	sc := StorageConfig{
 		Type:     "hostPath",
-		BasePath: "/storage/slurm",
+		BasePath: "/var/lib/nstack/slurm",
 	}
 	if profile == nil {
 		return sc

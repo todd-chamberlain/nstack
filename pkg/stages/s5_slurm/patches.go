@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 
@@ -57,12 +58,15 @@ func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *out
 		if _, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.pod, metav1.GetOptions{}); err != nil {
 			continue
 		}
-		cmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
+		execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+		cmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", slurmNamespace,
 			t.pod, "-c", t.container, "--", "touch", "/mnt/jail/.populated")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			printer.Debugf("jail marker on %s (non-fatal): %s: %v", t.pod, string(out), err)
+			cancel()
 		} else {
 			printer.Debugf("created .populated marker via %s", t.pod)
+			cancel()
 			return true
 		}
 	}

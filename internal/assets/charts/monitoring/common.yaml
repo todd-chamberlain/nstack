@@ -23,6 +23,7 @@ prometheus:
     type: ClusterIP
 
 grafana:
+  # Default dev password. Override via site config: overrides.monitoring.grafana.adminPassword
   adminPassword: admin
   persistence:
     enabled: true

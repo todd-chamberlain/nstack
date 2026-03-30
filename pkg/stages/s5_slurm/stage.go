@@ -174,6 +174,11 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				// Wait for soperator webhook to be ready (needs cert-manager cert).
 				printer.Debugf("waiting for soperator webhook...")
 				for retry := 0; retry < 30; retry++ {
+					select {
+					case <-ctx.Done():
+						return fmt.Errorf("context cancelled waiting for soperator webhook: %w", ctx.Err())
+					default:
+					}
 					eps, epErr := kc.Clientset().CoreV1().Endpoints(soperatorNamespace).Get(ctx, "soperator-webhook-service", metav1.GetOptions{})
 					if epErr == nil && len(eps.Subsets) > 0 && len(eps.Subsets[0].Addresses) > 0 {
 						printer.Debugf("webhook ready")
@@ -201,45 +206,40 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 	// complete before scaling the operator down, otherwise pods will fail
 	// with missing volume mounts.
 	//
-	// Signal that reconciliation is complete: the SSH root keys ConfigMap exists
-	// (it's one of the last resources created) AND at least 3 pods are running.
+	// Signal that reconciliation is complete: the SSH root keys ConfigMap
+	// exists (it's one of the last resources the operator creates).
 	if len(plan.Patches) > 0 {
 		printer.Infof("  Waiting for Slurm cluster reconciliation...")
 		cs := kc.Clientset()
-		clusterName := "slurm1" // default cluster name from Helm values
-		sshKeyCM := clusterName + "-ssh-root-keys"
+		sshKeyCM := slurmClusterName + "-ssh-root-keys"
 
 		for i := 0; i < 120; i++ {
+			select {
+			case <-ctx.Done():
+				return fmt.Errorf("context cancelled waiting for cluster reconciliation: %w", ctx.Err())
+			default:
+			}
+
 			// Check if key ConfigMaps exist (signals operator finished).
 			_, cmErr := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, sshKeyCM, metav1.GetOptions{})
 			if cmErr == nil {
-				// Also verify pods are coming up.
-				pods, _ := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
-					LabelSelector: "app.kubernetes.io/name=slurmcluster",
-				})
-				running := 0
-				for _, p := range pods.Items {
-					if p.Status.Phase == corev1.PodRunning || p.Status.Phase == corev1.PodPending {
-						running++
-					}
-				}
-				if running >= 3 {
-					printer.Debugf("cluster reconciled: SSH keys ConfigMap exists, %d pods active", running)
+				printer.Debugf("cluster reconciled: SSH keys ConfigMap %s exists", sshKeyCM)
 
-					// Clear stale node_state from the controller spool PVC.
-					// Previous deploys may have saved state with different CPU topology
-					// which causes INVALID_REG on the next deploy.
-					clearCmd := exec.CommandContext(ctx, "kubectl", "exec", "-n", slurmNamespace,
-						"controller-0", "-c", "slurmctld", "--",
-						"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
-					if out, err := clearCmd.CombinedOutput(); err != nil {
-						printer.Debugf("spool cleanup (non-fatal): %s: %v", string(out), err)
-					} else {
-						printer.Debugf("cleared stale slurmctld state")
-					}
-
-					break
+				// Clear stale node_state from the controller spool PVC.
+				// Previous deploys may have saved state with different CPU topology
+				// which causes INVALID_REG on the next deploy.
+				execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+				clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", slurmNamespace,
+					"controller-0", "-c", "slurmctld", "--",
+					"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
+				if out, err := clearCmd.CombinedOutput(); err != nil {
+					printer.Debugf("spool cleanup (non-fatal): %s: %v", string(out), err)
+				} else {
+					printer.Debugf("cleared stale slurmctld state")
 				}
+
+				break
 			}
 			if i%12 == 0 {
 				printer.Debugf("waiting for operator to finish reconciliation...")

@@ -21,6 +21,13 @@ const (
 	soperatorNamespace = engine.SoperatorNamespace
 	soperatorGitRepo   = "https://github.com/nebius/soperator.git"
 	soperatorGitTag    = "3.0.2"
+
+	// slurmClusterName is the name of the SlurmCluster CR created by the
+	// slurm-cluster Helm chart. It determines the prefix for generated
+	// ConfigMaps (e.g., <name>-ssh-root-keys). This must match the
+	// clusterName in charts/slurm-cluster/common.yaml.
+	// TODO: derive from Helm values or site config instead of hardcoding.
+	slurmClusterName = "slurm1"
 )
 
 // cloneSoperatorRepo clones the soperator repository to a temporary directory at
@@ -133,7 +140,9 @@ func installSoperator(ctx context.Context, hc *helm.Client, kc *kube.Client, pro
 // Uses exec to invoke the helm binary, which handles repository config
 // and getter initialization correctly across all environments.
 func helmDepUpdate(chartDir string) error {
-	cmd := exec.Command("helm", "dependency", "update", chartDir)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "helm", "dependency", "update", chartDir)
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("helm dependency update %s: %s: %w", chartDir, string(out), err)
