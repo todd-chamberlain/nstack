@@ -23,6 +23,7 @@ func init() {
 	deployCmd.Flags().Int("only", 0, "run only this stage number")
 	deployCmd.Flags().String("stages", "", "comma-separated list of stage numbers (e.g., \"4,6\")")
 	deployCmd.Flags().Bool("force", false, "re-apply stages even if already deployed")
+	deployCmd.Flags().Bool("parallel", false, "run independent stages concurrently")
 	deployCmd.Flags().StringSlice("set", nil, "override values (key=value, can be repeated)")
 }
 
@@ -50,6 +51,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 	only, _ := cmd.Flags().GetInt("only")
 	stagesFlag, _ := cmd.Flags().GetString("stages")
 	force, _ := cmd.Flags().GetBool("force")
+	parallel, _ := cmd.Flags().GetBool("parallel")
 	setValues, _ := cmd.Flags().GetStringSlice("set")
 
 	resolveOpts, err := parseResolveOpts(from, only, stagesFlag)
@@ -89,6 +91,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 		ResolveOpts: resolveOpts,
 		Force:       force,
 		DryRun:      false,
+		Parallel:    parallel,
 		KubeClient:  kc,
 		HelmClient:  hc,
 		Site:        site,
