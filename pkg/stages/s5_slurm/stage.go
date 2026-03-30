@@ -96,6 +96,8 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	}
 
 	// Plan soperator, slurm-cluster, and nodesets.
+	// Note: Plan uses compiled default versions. Site version overrides only
+	// take effect during Apply. Plan output may differ from actual deploy versions.
 	plan.Components = append(plan.Components,
 		engine.PlanHelmComponent(hc, "soperator", "", soperatorVersion, soperatorNamespace, soperatorRelease),
 		engine.PlanHelmComponent(hc, "slurm-cluster", "", soperatorVersion, s.cluster.Namespace, slurmClusterRelease),
@@ -241,7 +243,6 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					printer.Debugf("spool cleanup skipped (no controller pod): %v", ctrlErr)
 				} else {
 					execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-					defer cancel()
 					clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", s.cluster.Namespace,
 						ctrlPod, "-c", "slurmctld", "--",
 						"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
@@ -250,6 +251,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					} else {
 						printer.Debugf("cleared stale slurmctld state")
 					}
+					cancel()
 				}
 
 				break

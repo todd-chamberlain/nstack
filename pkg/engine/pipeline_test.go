@@ -255,7 +255,6 @@ func TestAssignLevels(t *testing.T) {
 	tests := []struct {
 		name   string
 		stages []Stage
-		state  *state.State
 		want   map[int]int
 	}{
 		{
@@ -265,8 +264,7 @@ func TestAssignLevels(t *testing.T) {
 				&recordingStage{num: 2, name: "b"},
 				&recordingStage{num: 3, name: "c"},
 			},
-			state: &state.State{Stages: map[int]*state.StageState{}},
-			want:  map[int]int{1: 0, 2: 0, 3: 0},
+			want: map[int]int{1: 0, 2: 0, 3: 0},
 		},
 		{
 			name: "linear chain",
@@ -275,8 +273,7 @@ func TestAssignLevels(t *testing.T) {
 				&recordingStage{num: 2, name: "b", deps: []int{1}},
 				&recordingStage{num: 3, name: "c", deps: []int{2}},
 			},
-			state: &state.State{Stages: map[int]*state.StageState{}},
-			want:  map[int]int{1: 0, 2: 1, 3: 2},
+			want: map[int]int{1: 0, 2: 1, 3: 2},
 		},
 		{
 			name: "diamond dependency",
@@ -286,8 +283,7 @@ func TestAssignLevels(t *testing.T) {
 				&recordingStage{num: 3, name: "c", deps: []int{1}},
 				&recordingStage{num: 4, name: "d", deps: []int{2, 3}},
 			},
-			state: &state.State{Stages: map[int]*state.StageState{}},
-			want:  map[int]int{1: 0, 2: 1, 3: 1, 4: 2},
+			want: map[int]int{1: 0, 2: 1, 3: 1, 4: 2},
 		},
 		{
 			name: "dep not in set treated as satisfied",
@@ -295,16 +291,13 @@ func TestAssignLevels(t *testing.T) {
 				&recordingStage{num: 5, name: "b", deps: []int{4}},
 				&recordingStage{num: 6, name: "c", deps: []int{5}},
 			},
-			state: &state.State{Stages: map[int]*state.StageState{
-				4: {Status: "deployed"},
-			}},
 			want: map[int]int{5: 0, 6: 1},
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := assignLevels(tt.stages, tt.state)
+			got := assignLevels(tt.stages)
 			if len(got) != len(tt.want) {
 				t.Fatalf("len(levels) = %d, want %d", len(got), len(tt.want))
 			}

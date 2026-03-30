@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 
@@ -16,6 +17,15 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
 
+// validateSlurmName ensures a name is safe for use in sacctmgr commands.
+func validateSlurmName(name string) error {
+	matched, _ := regexp.MatchString(`^[a-zA-Z0-9_-]+$`, name)
+	if !matched {
+		return fmt.Errorf("invalid name %q: must match [a-zA-Z0-9_-]+", name)
+	}
+	return nil
+}
+
 // setupFederation configures Slurm federation via sacctmgr commands
 // executed inside the controller pod.
 func setupFederation(ctx context.Context, kc *kube.Client, site *config.Site, cluster config.ClusterConfig, printer *output.Printer) error {
@@ -26,42 +36,61 @@ func setupFederation(ctx context.Context, kc *kube.Client, site *config.Site, cl
 	fed := site.Federation
 	ns := cluster.Namespace
 
+	// Validate all names before use to prevent shell injection.
+	if err := validateSlurmName(fed.Name); err != nil {
+		return fmt.Errorf("federation name: %w", err)
+	}
+	if err := validateSlurmName(cluster.Name); err != nil {
+		return fmt.Errorf("cluster name: %w", err)
+	}
+	for _, f := range fed.Features {
+		if err := validateSlurmName(f); err != nil {
+			return fmt.Errorf("feature %q: %w", f, err)
+		}
+	}
+
 	// Find a running controller pod.
 	controllerPod, err := findPodByLabel(ctx, kc.Clientset(), ns, "app.kubernetes.io/component=controller")
 	if err != nil {
 		return fmt.Errorf("finding controller pod for federation setup: %w", err)
 	}
 
-	sacctmgrExec := func(args string) error {
+	sacctmgrExec := func(args string) (string, error) {
 		execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 		defer cancel()
 		cmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", ns,
 			controllerPod, "-c", "slurmctld", "--",
-			"bash", "-c", fmt.Sprintf("sacctmgr -i %s 2>&1 || true", args))
+			"bash", "-c", fmt.Sprintf("sacctmgr -i %s 2>&1", args))
 		out, err := cmd.CombinedOutput()
-		printer.Debugf("sacctmgr %s: %s", args, strings.TrimSpace(string(out)))
+		outStr := strings.TrimSpace(string(out))
+		printer.Debugf("sacctmgr %s: %s", args, outStr)
 		if err != nil {
-			return fmt.Errorf("sacctmgr %s: %s: %w", args, string(out), err)
+			return outStr, fmt.Errorf("sacctmgr %s: %s: %w", args, outStr, err)
 		}
-		return nil
+		return outStr, nil
 	}
 
 	printer.Infof("  Configuring Slurm federation '%s'...", fed.Name)
 
 	// Create federation (idempotent; may already exist).
-	if err := sacctmgrExec(fmt.Sprintf("add federation %s", fed.Name)); err != nil {
-		printer.Debugf("federation create (may already exist): %v", err)
+	out, err := sacctmgrExec(fmt.Sprintf("add federation %s", fed.Name))
+	if err != nil {
+		if strings.Contains(strings.ToLower(out), "already exists") {
+			printer.Debugf("federation '%s' already exists", fed.Name)
+		} else {
+			printer.Debugf("federation create failed: %v", err)
+		}
 	}
 
 	// Add this cluster to the federation.
-	if err := sacctmgrExec(fmt.Sprintf("modify cluster %s set federation=%s", cluster.Name, fed.Name)); err != nil {
+	if _, err := sacctmgrExec(fmt.Sprintf("modify cluster %s set federation=%s", cluster.Name, fed.Name)); err != nil {
 		return fmt.Errorf("adding cluster to federation: %w", err)
 	}
 
 	// Set cluster features for data locality.
 	if len(fed.Features) > 0 {
 		features := strings.Join(fed.Features, ",")
-		if err := sacctmgrExec(fmt.Sprintf("modify cluster %s set features=%s", cluster.Name, features)); err != nil {
+		if _, err := sacctmgrExec(fmt.Sprintf("modify cluster %s set features=%s", cluster.Name, features)); err != nil {
 			return fmt.Errorf("setting cluster features: %w", err)
 		}
 		printer.Debugf("set cluster features: %s", features)

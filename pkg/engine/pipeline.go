@@ -138,10 +138,12 @@ func (p *Pipeline) executeStage(ctx context.Context, opts RunOpts, s Stage, curr
 			Applied: time.Now(),
 			Error:   err.Error(),
 		}
+		if err := p.store.Save(ctx, currentState); err != nil {
+			p.printer.Debugf("saving state after stage %d failure: %v", num, err)
+		}
 		if mu != nil {
 			mu.Unlock()
 		}
-		_ = p.store.Save(ctx, currentState)
 		return fmt.Errorf("applying stage %d (%s): %w", num, name, err)
 	}
 
@@ -162,11 +164,14 @@ func (p *Pipeline) executeStage(ctx context.Context, opts RunOpts, s Stage, curr
 		Applied:    time.Now(),
 		Components: components,
 	}
+	if err := p.store.Save(ctx, currentState); err != nil {
+		if mu != nil {
+			mu.Unlock()
+		}
+		return fmt.Errorf("saving state after stage %d: %w", num, err)
+	}
 	if mu != nil {
 		mu.Unlock()
-	}
-	if err := p.store.Save(ctx, currentState); err != nil {
-		return fmt.Errorf("saving state after stage %d: %w", num, err)
 	}
 
 	return nil
@@ -175,7 +180,7 @@ func (p *Pipeline) executeStage(ctx context.Context, opts RunOpts, s Stage, curr
 // runParallel executes stages grouped by dependency level. Stages within the
 // same level run concurrently; levels are processed in order.
 func (p *Pipeline) runParallel(ctx context.Context, opts RunOpts, stages []Stage, currentState *state.State) error {
-	levels := assignLevels(stages, currentState)
+	levels := assignLevels(stages)
 	maxLevel := 0
 	for _, lvl := range levels {
 		if lvl > maxLevel {
@@ -223,9 +228,8 @@ func (p *Pipeline) runParallel(ctx context.Context, opts RunOpts, stages []Stage
 
 // assignLevels computes a dependency-based level for each stage. Level 0
 // stages have no unsatisfied dependencies; level N stages depend on at least
-// one stage at level N-1. Dependencies already present in currentState are
-// considered satisfied and do not increase the level.
-func assignLevels(stages []Stage, currentState *state.State) map[int]int {
+// one stage at level N-1.
+func assignLevels(stages []Stage) map[int]int {
 	levels := make(map[int]int)
 	stageSet := make(map[int]bool)
 	for _, s := range stages {

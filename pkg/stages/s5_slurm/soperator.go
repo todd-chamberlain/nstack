@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -35,7 +36,7 @@ func cloneSoperatorRepo(ctx context.Context, tag string, printer *output.Printer
 	// Try cache path first.
 	cacheDir, cacheErr := soperatorCacheDir(tag)
 	if cacheErr == nil {
-		if isCacheValid(cacheDir) {
+		if isCacheValid(cacheDir, tag) {
 			printer.Debugf("using cached soperator %s", tag)
 			return cacheDir, noop, nil
 		}
@@ -107,14 +108,24 @@ func soperatorCacheDir(tag string) (string, error) {
 }
 
 // isCacheValid checks that a cached clone directory looks complete: the git
-// repo exists and helm dependencies have been built for the soperator chart.
-func isCacheValid(dir string) bool {
-	if _, err := os.Stat(filepath.Join(dir, ".git", "HEAD")); err != nil {
+// repo exists, HEAD is not corrupt, and helm dependencies have been built
+// for the soperator chart.
+func isCacheValid(dir string, expectedTag string) bool {
+	headPath := filepath.Join(dir, ".git", "HEAD")
+	data, err := os.ReadFile(headPath)
+	if err != nil {
+		return false
+	}
+	// If HEAD is empty or corrupt, invalidate.
+	if len(strings.TrimSpace(string(data))) < 10 {
 		return false
 	}
 	// Soperator chart must have its dependencies (kruise) already built.
-	_, err := os.Stat(filepath.Join(dir, "helm", "soperator", "charts"))
-	return err == nil
+	chartsDir := filepath.Join(dir, "helm", "soperator", "charts")
+	if _, err := os.Stat(chartsDir); err != nil {
+		return false
+	}
+	return true
 }
 
 // helmDepUpdateAll runs helm dep update on every chart sub-directory in the
