@@ -11,6 +11,7 @@ images:
 nodesets:
   - name: worker-gpu
     annotations:
+      # TODO: should match site.cluster.name (override via site config)
       soperator.nebius.ai/parental-cluster-ref: slurm1
     replicas: 1
     maxUnavailable: 1

@@ -11,6 +11,7 @@ type Site struct {
 	Name       string                            `yaml:"-"` // Set from map key
 	Profile    string                            `yaml:"profile"`
 	Kubeconfig string                            `yaml:"kubeconfig"`
+	Cluster    *ClusterConfig                    `yaml:"cluster,omitempty"`
 	Overlay    *OverlayConfig                    `yaml:"overlay,omitempty"`
 	Fabric     *FabricConfig                     `yaml:"fabric,omitempty"`
 	Nodes      []Node                            `yaml:"nodes,omitempty"`
@@ -138,6 +139,27 @@ type StorageConfig struct {
 	Type         string // "hostPath" or "pvc"
 	BasePath     string // only for hostPath
 	StorageClass string // only for pvc
+}
+
+// ClusterConfig holds the Slurm cluster identity used throughout deployment.
+type ClusterConfig struct {
+	Name      string `yaml:"name"`
+	Namespace string `yaml:"namespace"`
+}
+
+// ResolveCluster returns a ClusterConfig with defaults applied from the site.
+// The defaults are: name="slurm1", namespace="slurm".
+func ResolveCluster(site *Site) ClusterConfig {
+	cc := ClusterConfig{Name: "slurm1", Namespace: "slurm"}
+	if site != nil && site.Cluster != nil {
+		if site.Cluster.Name != "" {
+			cc.Name = site.Cluster.Name
+		}
+		if site.Cluster.Namespace != "" {
+			cc.Namespace = site.Cluster.Namespace
+		}
+	}
+	return cc
 }
 
 // ResolveStorage returns a StorageConfig with defaults applied from the profile.

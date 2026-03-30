@@ -20,10 +20,9 @@ import (
 )
 
 const (
-	mlflowName      = "mlflow"
-	mlflowNamespace = "slurm"
-	mlflowPVName    = "mlflow-pv"
-	mlflowPVCName   = "mlflow-pvc"
+	mlflowName    = "mlflow"
+	mlflowPVName  = "mlflow-pv"
+	mlflowPVCName = "mlflow-pvc"
 )
 
 // mlflowValues holds parsed values from the embedded MLflow configuration.
@@ -111,30 +110,32 @@ func parseResources(vals map[string]interface{}) corev1.ResourceRequirements {
 }
 
 // deployMLflow creates the MLflow Deployment, Service, and storage resources
-// in the slurm namespace.
+// in the cluster namespace.
 func deployMLflow(ctx context.Context, kc *kube.Client, site *config.Site, profile *config.Profile, printer *output.Printer) error {
 	mv, err := loadMLflowValues()
 	if err != nil {
 		return err
 	}
 
-	// Ensure the slurm namespace exists.
-	if err := kc.EnsureNamespace(ctx, mlflowNamespace); err != nil {
-		return fmt.Errorf("ensuring %s namespace: %w", mlflowNamespace, err)
+	ns := config.ResolveCluster(site).Namespace
+
+	// Ensure the cluster namespace exists.
+	if err := kc.EnsureNamespace(ctx, ns); err != nil {
+		return fmt.Errorf("ensuring %s namespace: %w", ns, err)
 	}
 
 	// 1. Create PV/PVC for MLflow data.
-	if err := createMLflowStorage(ctx, kc, profile, printer); err != nil {
+	if err := createMLflowStorage(ctx, kc, profile, ns, printer); err != nil {
 		return fmt.Errorf("creating mlflow storage: %w", err)
 	}
 
 	// 2. Create Deployment.
-	if err := createMLflowDeployment(ctx, kc, mv, printer); err != nil {
+	if err := createMLflowDeployment(ctx, kc, mv, ns, printer); err != nil {
 		return fmt.Errorf("creating mlflow deployment: %w", err)
 	}
 
 	// 3. Create Service.
-	if err := createMLflowService(ctx, kc, mv, printer); err != nil {
+	if err := createMLflowService(ctx, kc, mv, ns, printer); err != nil {
 		return fmt.Errorf("creating mlflow service: %w", err)
 	}
 
@@ -142,7 +143,7 @@ func deployMLflow(ctx context.Context, kc *kube.Client, site *config.Site, profi
 }
 
 // createMLflowStorage creates the PV and PVC for MLflow data storage.
-func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.Profile, printer *output.Printer) error {
+func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.Profile, ns string, printer *output.Printer) error {
 	cs := kc.Clientset()
 	sc := config.ResolveStorage(profile)
 	capacity := resource.MustParse("5Gi")
@@ -174,7 +175,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 					APIVersion: "v1",
 					Kind:       "PersistentVolumeClaim",
 					Name:       mlflowPVCName,
-					Namespace:  mlflowNamespace,
+					Namespace:  ns,
 				},
 				PersistentVolumeReclaimPolicy: corev1.PersistentVolumeReclaimRetain,
 			},
@@ -200,7 +201,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 		pvc := &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      mlflowPVCName,
-				Namespace: mlflowNamespace,
+				Namespace: ns,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "nstack",
 					"app.kubernetes.io/component":  "mlflow",
@@ -218,7 +219,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 			},
 		}
 
-		_, err = cs.CoreV1().PersistentVolumeClaims(mlflowNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		_, err = cs.CoreV1().PersistentVolumeClaims(ns).Create(ctx, pvc, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("creating mlflow PVC: %w", err)
 		}
@@ -228,7 +229,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 		pvc := &corev1.PersistentVolumeClaim{
 			ObjectMeta: metav1.ObjectMeta{
 				Name:      mlflowPVCName,
-				Namespace: mlflowNamespace,
+				Namespace: ns,
 				Labels: map[string]string{
 					"app.kubernetes.io/managed-by": "nstack",
 					"app.kubernetes.io/component":  "mlflow",
@@ -247,7 +248,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 			pvc.Spec.StorageClassName = &sc.StorageClass
 		}
 
-		_, err := cs.CoreV1().PersistentVolumeClaims(mlflowNamespace).Create(ctx, pvc, metav1.CreateOptions{})
+		_, err := cs.CoreV1().PersistentVolumeClaims(ns).Create(ctx, pvc, metav1.CreateOptions{})
 		if err != nil && !apierrors.IsAlreadyExists(err) {
 			return fmt.Errorf("creating mlflow PVC: %w", err)
 		}
@@ -261,7 +262,7 @@ func createMLflowStorage(ctx context.Context, kc *kube.Client, profile *config.P
 }
 
 // createMLflowDeployment creates the MLflow server Deployment.
-func createMLflowDeployment(ctx context.Context, kc *kube.Client, mv *mlflowValues, printer *output.Printer) error {
+func createMLflowDeployment(ctx context.Context, kc *kube.Client, mv *mlflowValues, ns string, printer *output.Printer) error {
 	cs := kc.Clientset()
 
 	replicas := int32(1)
@@ -274,7 +275,7 @@ func createMLflowDeployment(ctx context.Context, kc *kube.Client, mv *mlflowValu
 	dep := &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mlflowName,
-			Namespace: mlflowNamespace,
+			Namespace: ns,
 			Labels:    labels,
 		},
 		Spec: appsv1.DeploymentSpec{
@@ -332,11 +333,11 @@ func createMLflowDeployment(ctx context.Context, kc *kube.Client, mv *mlflowValu
 		},
 	}
 
-	_, err := cs.AppsV1().Deployments(mlflowNamespace).Create(ctx, dep, metav1.CreateOptions{})
+	_, err := cs.AppsV1().Deployments(ns).Create(ctx, dep, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			printer.Debugf("mlflow deployment already exists, updating")
-			_, err = cs.AppsV1().Deployments(mlflowNamespace).Update(ctx, dep, metav1.UpdateOptions{})
+			_, err = cs.AppsV1().Deployments(ns).Update(ctx, dep, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("updating mlflow deployment: %w", err)
 			}
@@ -350,13 +351,13 @@ func createMLflowDeployment(ctx context.Context, kc *kube.Client, mv *mlflowValu
 }
 
 // createMLflowService creates the MLflow NodePort service.
-func createMLflowService(ctx context.Context, kc *kube.Client, mv *mlflowValues, printer *output.Printer) error {
+func createMLflowService(ctx context.Context, kc *kube.Client, mv *mlflowValues, ns string, printer *output.Printer) error {
 	cs := kc.Clientset()
 
 	svc := &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mlflowName,
-			Namespace: mlflowNamespace,
+			Namespace: ns,
 			Labels: map[string]string{
 				"app.kubernetes.io/name":       mlflowName,
 				"app.kubernetes.io/managed-by": "nstack",
@@ -380,18 +381,18 @@ func createMLflowService(ctx context.Context, kc *kube.Client, mv *mlflowValues,
 		},
 	}
 
-	_, err := cs.CoreV1().Services(mlflowNamespace).Create(ctx, svc, metav1.CreateOptions{})
+	_, err := cs.CoreV1().Services(ns).Create(ctx, svc, metav1.CreateOptions{})
 	if err != nil {
 		if apierrors.IsAlreadyExists(err) {
 			printer.Debugf("mlflow service already exists, updating")
 			// Get existing service to preserve ClusterIP.
-			existing, getErr := cs.CoreV1().Services(mlflowNamespace).Get(ctx, mlflowName, metav1.GetOptions{})
+			existing, getErr := cs.CoreV1().Services(ns).Get(ctx, mlflowName, metav1.GetOptions{})
 			if getErr != nil {
 				return fmt.Errorf("getting existing mlflow service: %w", getErr)
 			}
 			svc.ObjectMeta.ResourceVersion = existing.ObjectMeta.ResourceVersion
 			svc.Spec.ClusterIP = existing.Spec.ClusterIP
-			_, err = cs.CoreV1().Services(mlflowNamespace).Update(ctx, svc, metav1.UpdateOptions{})
+			_, err = cs.CoreV1().Services(ns).Update(ctx, svc, metav1.UpdateOptions{})
 			if err != nil {
 				return fmt.Errorf("updating mlflow service: %w", err)
 			}
@@ -405,25 +406,25 @@ func createMLflowService(ctx context.Context, kc *kube.Client, mv *mlflowValues,
 }
 
 // destroyMLflow removes the MLflow Deployment, Service, PVC, and PV.
-func destroyMLflow(ctx context.Context, kc *kube.Client, printer *output.Printer) error {
+func destroyMLflow(ctx context.Context, kc *kube.Client, ns string, printer *output.Printer) error {
 	cs := kc.Clientset()
 
 	// Delete Service.
-	err := cs.CoreV1().Services(mlflowNamespace).Delete(ctx, mlflowName, metav1.DeleteOptions{})
+	err := cs.CoreV1().Services(ns).Delete(ctx, mlflowName, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting mlflow service: %w", err)
 	}
 	printer.Debugf("deleted mlflow service")
 
 	// Delete Deployment.
-	err = cs.AppsV1().Deployments(mlflowNamespace).Delete(ctx, mlflowName, metav1.DeleteOptions{})
+	err = cs.AppsV1().Deployments(ns).Delete(ctx, mlflowName, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting mlflow deployment: %w", err)
 	}
 	printer.Debugf("deleted mlflow deployment")
 
 	// Delete PVC.
-	err = cs.CoreV1().PersistentVolumeClaims(mlflowNamespace).Delete(ctx, mlflowPVCName, metav1.DeleteOptions{})
+	err = cs.CoreV1().PersistentVolumeClaims(ns).Delete(ctx, mlflowPVCName, metav1.DeleteOptions{})
 	if err != nil && !apierrors.IsNotFound(err) {
 		return fmt.Errorf("deleting mlflow PVC: %w", err)
 	}

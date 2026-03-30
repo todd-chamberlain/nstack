@@ -42,7 +42,7 @@ func runDestroy(cmd *cobra.Command, args []string) error {
 
 	printer := createPrinter()
 	registry := buildRegistry()
-	store := state.NewStore(kc.Clientset())
+	store := state.NewStore(kc.Clientset(), site.Name)
 
 	stageNum, _ := cmd.Flags().GetInt("stage")
 	fromNum, _ := cmd.Flags().GetInt("from")

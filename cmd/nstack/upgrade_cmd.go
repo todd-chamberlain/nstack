@@ -39,7 +39,7 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 
 	printer := createPrinter()
 	registry := buildRegistry()
-	store := state.NewStore(kc.Clientset())
+	store := state.NewStore(kc.Clientset(), site.Name)
 	pipeline := engine.NewPipeline(registry, store, printer)
 
 	stageNum, _ := cmd.Flags().GetInt("stage")

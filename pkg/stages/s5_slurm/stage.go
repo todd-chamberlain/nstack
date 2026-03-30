@@ -21,10 +21,14 @@ import (
 
 // SlurmStage implements the Stage interface for deploying the soperator
 // controller, Slurm cluster, NodeSets, and K3s-specific patches.
-type SlurmStage struct{}
+type SlurmStage struct {
+	cluster config.ClusterConfig
+}
 
-// New returns a new SlurmStage instance.
-func New() *SlurmStage { return &SlurmStage{} }
+// New returns a new SlurmStage instance with default cluster identity.
+func New() *SlurmStage {
+	return &SlurmStage{cluster: config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}}
+}
 
 func (s *SlurmStage) Number() int         { return 5 }
 func (s *SlurmStage) Name() string        { return "Slurm" }
@@ -41,19 +45,19 @@ func (s *SlurmStage) Detect(ctx context.Context, kc *kube.Client) (*engine.Detec
 	}
 
 	// Check for slurm-cluster Helm release by looking for controller pod.
-	pods, err := cs.CoreV1().Pods(slurmNamespace).List(ctx, metav1.ListOptions{
+	pods, err := cs.CoreV1().Pods(s.cluster.Namespace).List(ctx, metav1.ListOptions{
 		LabelSelector: "app.kubernetes.io/name=slurm-cluster",
 	})
 	if err == nil && len(pods.Items) > 0 {
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "slurm-cluster",
-			Namespace: slurmNamespace,
+			Namespace: s.cluster.Namespace,
 			Status:    "running",
 		})
 	} else {
 		result.Operators = append(result.Operators, engine.DetectedOperator{
 			Name:      "slurm-cluster",
-			Namespace: slurmNamespace,
+			Namespace: s.cluster.Namespace,
 			Status:    "not-installed",
 		})
 	}
@@ -77,26 +81,26 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 	hc := helm.NewClient(kc.Kubeconfig())
 
 	// Plan storage: check if PVCs exist.
-	_, pvcErr := cs.CoreV1().PersistentVolumeClaims(slurmNamespace).Get(ctx, "jail-pvc", metav1.GetOptions{})
+	_, pvcErr := cs.CoreV1().PersistentVolumeClaims(s.cluster.Namespace).Get(ctx, "jail-pvc", metav1.GetOptions{})
 	if pvcErr == nil {
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "storage",
 			Action:    "skip",
-			Namespace: slurmNamespace,
+			Namespace: s.cluster.Namespace,
 		})
 	} else {
 		plan.Components = append(plan.Components, engine.ComponentPlan{
 			Name:      "storage",
 			Action:    "install",
-			Namespace: slurmNamespace,
+			Namespace: s.cluster.Namespace,
 		})
 	}
 
 	// Plan soperator, slurm-cluster, and nodesets.
 	plan.Components = append(plan.Components,
 		engine.PlanHelmComponent(hc, "soperator", "", soperatorVersion, soperatorNamespace, soperatorRelease),
-		engine.PlanHelmComponent(hc, "slurm-cluster", "", soperatorVersion, slurmNamespace, slurmClusterRelease),
-		engine.PlanHelmComponent(hc, "nodesets", "", soperatorVersion, slurmNamespace, nodesetsRelease),
+		engine.PlanHelmComponent(hc, "slurm-cluster", "", soperatorVersion, s.cluster.Namespace, slurmClusterRelease),
+		engine.PlanHelmComponent(hc, "nodesets", "", soperatorVersion, s.cluster.Namespace, nodesetsRelease),
 	)
 
 	// Plan patches — only the minimal runtime patches still needed.
@@ -124,6 +128,9 @@ func (s *SlurmStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 // Apply executes the stage plan, installing soperator, slurm-cluster, nodesets,
 // and applying K3s-specific patches as needed.
 func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, site *config.Site, profile *config.Profile, plan *engine.StagePlan, printer *output.Printer) error {
+	// Resolve cluster identity from site config (updates struct for subsequent methods).
+	s.cluster = config.ResolveCluster(site)
+
 	// Clone soperator repo upfront (needed for CRDs, operator chart, cluster chart, nodesets).
 	var repoDir string
 	needsRepo := false
@@ -160,7 +167,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 
 			switch comp.Name {
 			case "storage":
-				err = createStorage(ctx, kc, profile, printer)
+				err = createStorage(ctx, kc, profile, s.cluster, printer)
 			case "soperator":
 				// Install CRDs first, then the operator.
 				err = installSoperatorCRDs(ctx, kc, repoDir, printer)
@@ -187,9 +194,9 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 					}
 					time.Sleep(5 * time.Second)
 				}
-				err = installSlurmCluster(ctx, hc, site, profile, repoDir, printer)
+				err = installSlurmCluster(ctx, hc, site, profile, repoDir, s.cluster, printer)
 			case "nodesets":
-				err = installNodeSets(ctx, hc, site, profile, repoDir, printer)
+				err = installNodeSets(ctx, hc, site, profile, repoDir, s.cluster, printer)
 			default:
 				err = fmt.Errorf("unknown component: %s", comp.Name)
 			}
@@ -212,7 +219,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 	if len(plan.Patches) > 0 {
 		printer.Infof("  Waiting for Slurm cluster reconciliation...")
 		cs := kc.Clientset()
-		sshKeyCM := slurmClusterName + "-ssh-root-keys"
+		sshKeyCM := s.cluster.Name + "-ssh-root-keys"
 
 		for i := 0; i < 120; i++ {
 			select {
@@ -222,7 +229,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 			}
 
 			// Check if key ConfigMaps exist (signals operator finished).
-			_, cmErr := cs.CoreV1().ConfigMaps(slurmNamespace).Get(ctx, sshKeyCM, metav1.GetOptions{})
+			_, cmErr := cs.CoreV1().ConfigMaps(s.cluster.Namespace).Get(ctx, sshKeyCM, metav1.GetOptions{})
 			if cmErr == nil {
 				printer.Debugf("cluster reconciled: SSH keys ConfigMap %s exists", sshKeyCM)
 
@@ -231,7 +238,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 				// which causes INVALID_REG on the next deploy.
 				execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 				defer cancel()
-				clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", slurmNamespace,
+				clearCmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", s.cluster.Namespace,
 					"controller-0", "-c", "slurmctld", "--",
 					"bash", "-c", "rm -f /var/spool/slurmctld/node_state /var/spool/slurmctld/node_state.old /var/spool/slurmctld/job_state /var/spool/slurmctld/job_state.old 2>/dev/null; pkill -HUP slurmctld 2>/dev/null || true")
 				if out, err := clearCmd.CombinedOutput(); err != nil {
@@ -252,7 +259,7 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 	// Apply K3s patches after operator has reconciled.
 	if len(plan.Patches) > 0 {
 		printer.Infof("  Applying K3s patches...")
-		if err := applyK3sPatches(ctx, kc, profile, printer); err != nil {
+		if err := applyK3sPatches(ctx, kc, profile, s.cluster, printer); err != nil {
 			return fmt.Errorf("applying K3s patches: %w", err)
 		}
 	}
@@ -292,11 +299,11 @@ func (s *SlurmStage) Status(ctx context.Context, kc *kube.Client) (*engine.Stage
 
 	// Check slurm controller pods.
 	status.Components = append(status.Components,
-		checkPodGroupStatus(ctx, cs, slurmNamespace, "app.kubernetes.io/component=controller", "slurm-cluster"))
+		checkPodGroupStatus(ctx, cs, s.cluster.Namespace, "app.kubernetes.io/component=controller", "slurm-cluster"))
 
 	// Check worker pods.
 	status.Components = append(status.Components,
-		checkPodGroupStatus(ctx, cs, slurmNamespace, "app.kubernetes.io/component=worker", "worker-gpu"))
+		checkPodGroupStatus(ctx, cs, s.cluster.Namespace, "app.kubernetes.io/component=worker", "worker-gpu"))
 
 	status.Status = engine.DetermineOverallStatus(status.Components)
 
@@ -347,8 +354,8 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 	releases := []struct {
 		name, release, namespace string
 	}{
-		{"nodesets", nodesetsRelease, slurmNamespace},
-		{"slurm-cluster", slurmClusterRelease, slurmNamespace},
+		{"nodesets", nodesetsRelease, s.cluster.Namespace},
+		{"slurm-cluster", slurmClusterRelease, s.cluster.Namespace},
 		{"soperator", soperatorRelease, soperatorNamespace},
 	}
 
@@ -360,7 +367,7 @@ func (s *SlurmStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 
 	// Remove storage (PVCs + PVs).
 	printer.ComponentStart(4, total, "storage", "", "destroying")
-	err := destroyStorage(ctx, kc, printer)
+	err := destroyStorage(ctx, kc, s.cluster, printer)
 	printer.ComponentDone("storage", err)
 	return err
 }

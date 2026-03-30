@@ -40,7 +40,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	printer := createPrinter()
 	registry := buildRegistry()
-	store := state.NewStore(kc.Clientset())
+	store := state.NewStore(kc.Clientset(), site.Name)
 
 	currentState, err := store.Load(cmd.Context())
 	if err != nil {

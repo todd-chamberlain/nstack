@@ -22,12 +22,6 @@ const (
 	soperatorGitRepo   = "https://github.com/nebius/soperator.git"
 	soperatorGitTag    = "3.0.2"
 
-	// slurmClusterName is the name of the SlurmCluster CR created by the
-	// slurm-cluster Helm chart. It determines the prefix for generated
-	// ConfigMaps (e.g., <name>-ssh-root-keys). This must match the
-	// clusterName in charts/slurm-cluster/common.yaml.
-	// TODO: derive from Helm values or site config instead of hardcoding.
-	slurmClusterName = "slurm1"
 )
 
 // cloneSoperatorRepo clones the soperator repository to a temporary directory at

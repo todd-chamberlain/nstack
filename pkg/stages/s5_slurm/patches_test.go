@@ -16,8 +16,9 @@ func TestApplyK3sPatches_NilProfile(t *testing.T) {
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	printer := output.New("text", true, false)
 	ctx := context.Background()
+	cluster := config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}
 
-	err := applyK3sPatches(ctx, kc, nil, printer)
+	err := applyK3sPatches(ctx, kc, nil, cluster, printer)
 	if err != nil {
 		t.Fatalf("applyK3sPatches with nil profile should not error: %v", err)
 	}
@@ -28,6 +29,7 @@ func TestApplyK3sPatches_MinimalProfile(t *testing.T) {
 	kc := kube.NewClientFromInterfaces(cs, nil, nil)
 	printer := output.New("text", true, false)
 	ctx := context.Background()
+	cluster := config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}
 
 	profile := &config.Profile{
 		Name: "k3s-single",
@@ -36,7 +38,7 @@ func TestApplyK3sPatches_MinimalProfile(t *testing.T) {
 		},
 	}
 
-	err := applyK3sPatches(ctx, kc, profile, printer)
+	err := applyK3sPatches(ctx, kc, profile, cluster, printer)
 	if err != nil {
 		t.Fatalf("applyK3sPatches: %v", err)
 	}

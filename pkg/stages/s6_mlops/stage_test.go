@@ -19,7 +19,7 @@ func makeMLflowDeployment(available int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      mlflowName,
-			Namespace: mlflowNamespace,
+			Namespace: "slurm",
 		},
 		Spec: appsv1.DeploymentSpec{
 			Replicas: int32Ptr(1),

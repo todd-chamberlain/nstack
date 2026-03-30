@@ -79,7 +79,7 @@ func (r *recordingStage) called(method string) bool {
 func newTestPipeline(t *testing.T, stages ...Stage) (*Pipeline, *Registry) {
 	t.Helper()
 	cs := fake.NewSimpleClientset()
-	store := state.NewStore(cs)
+	store := state.NewStore(cs, "")
 	ctx := context.Background()
 	if err := store.EnsureNamespace(ctx); err != nil {
 		t.Fatalf("EnsureNamespace: %v", err)

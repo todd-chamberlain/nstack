@@ -23,7 +23,7 @@ import (
 // The only runtime patches remaining are:
 //   - jailPopulatedMarker: populate-jail skips creating .populated when jail exists
 //   - containerdSocketBind: K3s containerd socket at non-standard path for kruise
-func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profile, printer *output.Printer) error {
+func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profile, cluster config.ClusterConfig, printer *output.Printer) error {
 	if profile == nil {
 		return nil
 	}
@@ -31,7 +31,7 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 	// Ensure .populated marker exists in the jail PVC.
 	// The populate-jail job exits early when the jail already has data
 	// but doesn't create the marker, which blocks sconfigcontroller's init.
-	if patchJailPopulatedMarker(ctx, kc, printer) {
+	if patchJailPopulatedMarker(ctx, kc, cluster.Namespace, printer) {
 		printer.PatchApplied("jail-populated-marker")
 	}
 
@@ -48,18 +48,18 @@ func applyK3sPatches(ctx context.Context, kc *kube.Client, profile *config.Profi
 }
 
 // patchJailPopulatedMarker creates the .populated marker in the jail PVC.
-func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, printer *output.Printer) bool {
+func patchJailPopulatedMarker(ctx context.Context, kc *kube.Client, namespace string, printer *output.Printer) bool {
 	targets := []struct{ pod, container string }{
 		{"controller-0", "slurmctld"},
 		{"login-0", "sshd"},
 	}
 	cs := kc.Clientset()
 	for _, t := range targets {
-		if _, err := cs.CoreV1().Pods(slurmNamespace).Get(ctx, t.pod, metav1.GetOptions{}); err != nil {
+		if _, err := cs.CoreV1().Pods(namespace).Get(ctx, t.pod, metav1.GetOptions{}); err != nil {
 			continue
 		}
 		execCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
-		cmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", slurmNamespace,
+		cmd := exec.CommandContext(execCtx, "kubectl", "exec", "-n", namespace,
 			t.pod, "-c", t.container, "--", "touch", "/mnt/jail/.populated")
 		if out, err := cmd.CombinedOutput(); err != nil {
 			printer.Debugf("jail marker on %s (non-fatal): %s: %v", t.pod, string(out), err)

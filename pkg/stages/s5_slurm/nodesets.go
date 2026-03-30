@@ -18,7 +18,7 @@ const (
 // installNodeSets deploys the nodesets Helm chart from the cloned soperator
 // repository. Values are loaded from embedded common.yaml and merged with
 // any site overrides.
-func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, printer *output.Printer) error {
+func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, cluster config.ClusterConfig, printer *output.Printer) error {
 	// Run helm dependency update on the nodesets chart.
 	chartDir := filepath.Join(repoDir, "helm", "nodesets")
 	if err := helmDepUpdate(chartDir); err != nil {
@@ -47,7 +47,7 @@ func installNodeSets(ctx context.Context, hc *helm.Client, site *config.Site, pr
 		ctx,
 		nodesetsRelease,
 		chartDir, // local chart path
-		slurmNamespace,
+		cluster.Namespace,
 		mergedValues,
 		helm.WithTimeout(10*time.Minute),
 	); err != nil {

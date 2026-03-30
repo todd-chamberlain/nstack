@@ -15,10 +15,14 @@ import (
 
 // MLOpsStage implements the Stage interface for deploying MLflow and
 // the kube-prometheus-stack monitoring suite.
-type MLOpsStage struct{}
+type MLOpsStage struct {
+	cluster config.ClusterConfig
+}
 
-// New returns a new MLOpsStage instance.
-func New() *MLOpsStage { return &MLOpsStage{} }
+// New returns a new MLOpsStage instance with default cluster identity.
+func New() *MLOpsStage {
+	return &MLOpsStage{cluster: config.ClusterConfig{Name: "slurm1", Namespace: "slurm"}}
+}
 
 func (s *MLOpsStage) Number() int         { return 6 }
 func (s *MLOpsStage) Name() string        { return "MLOps & Monitoring" }
@@ -28,7 +32,7 @@ func (s *MLOpsStage) Dependencies() []int { return nil }
 func (s *MLOpsStage) Detect(ctx context.Context, kc *kube.Client) (*engine.DetectResult, error) {
 	result := &engine.DetectResult{
 		Operators: []engine.DetectedOperator{
-			engine.DetectDeployment(ctx, kc.Clientset(), mlflowNamespace, mlflowName, "mlflow"),
+			engine.DetectDeployment(ctx, kc.Clientset(), s.cluster.Namespace, mlflowName, "mlflow"),
 		},
 	}
 
@@ -74,7 +78,7 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 
 	// Plan MLflow and monitoring.
 	plan.Components = append(plan.Components,
-		engine.PlanDeploymentComponent(ctx, cs, "mlflow", "", "", mlflowNamespace, mlflowName),
+		engine.PlanDeploymentComponent(ctx, cs, "mlflow", "", "", s.cluster.Namespace, mlflowName),
 		engine.PlanHelmComponent(hc, "monitoring", prometheusChart, monitoringVersion, monitoringNS, monitoringRelease),
 	)
 
@@ -94,6 +98,9 @@ func (s *MLOpsStage) Plan(ctx context.Context, kc *kube.Client, profile *config.
 // Apply executes the stage plan, installing MLflow, the monitoring stack,
 // and Soperator dashboards as needed.
 func (s *MLOpsStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client, site *config.Site, profile *config.Profile, plan *engine.StagePlan, printer *output.Printer) error {
+	// Resolve cluster identity from site config (updates struct for subsequent methods).
+	s.cluster = config.ResolveCluster(site)
+
 	total := len(plan.Components)
 
 	for i, comp := range plan.Components {
@@ -133,7 +140,7 @@ func (s *MLOpsStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 func (s *MLOpsStage) Status(ctx context.Context, kc *kube.Client) (*engine.StageStatus, error) {
 	cs := kc.Clientset()
 
-	mlStatus := engine.CheckDeploymentStatus(ctx, cs, mlflowNamespace, mlflowName, "mlflow")
+	mlStatus := engine.CheckDeploymentStatus(ctx, cs, s.cluster.Namespace, mlflowName, "mlflow")
 
 	status := &engine.StageStatus{
 		Stage:   s.Number(),
@@ -183,7 +190,7 @@ func (s *MLOpsStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Clie
 
 	// Remove MLflow resources.
 	printer.ComponentStart(2, total, "mlflow", "", "destroying")
-	err := destroyMLflow(ctx, kc, printer)
+	err := destroyMLflow(ctx, kc, s.cluster.Namespace, printer)
 	printer.ComponentDone("mlflow", err)
 	return err
 }

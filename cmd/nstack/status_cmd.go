@@ -38,7 +38,7 @@ func runStatus(cmd *cobra.Command, args []string) error {
 
 	printer := createPrinter()
 	registry := buildRegistry()
-	store := state.NewStore(kc.Clientset())
+	store := state.NewStore(kc.Clientset(), site.Name)
 	stageNum, _ := cmd.Flags().GetInt("stage")
 
 	format := viper.GetString("output")

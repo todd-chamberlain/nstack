@@ -11,7 +11,7 @@ import (
 
 func TestStore_SaveAndLoad(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	store := NewStore(cs)
+	store := NewStore(cs, "")
 	ctx := context.Background()
 
 	// Ensure the namespace exists first.
@@ -74,7 +74,7 @@ func TestStore_SaveAndLoad(t *testing.T) {
 
 func TestStore_UpdateStage(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	store := NewStore(cs)
+	store := NewStore(cs, "")
 	ctx := context.Background()
 
 	if err := store.EnsureNamespace(ctx); err != nil {
@@ -119,7 +119,7 @@ func TestStore_UpdateStage(t *testing.T) {
 
 func TestStore_EmptyState(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	store := NewStore(cs)
+	store := NewStore(cs, "")
 	ctx := context.Background()
 
 	// Load without any ConfigMap existing — should return empty state.
@@ -138,7 +138,7 @@ func TestStore_EmptyState(t *testing.T) {
 
 func TestStore_EnsureNamespace(t *testing.T) {
 	cs := fake.NewSimpleClientset()
-	store := NewStore(cs)
+	store := NewStore(cs, "")
 	ctx := context.Background()
 
 	if err := store.EnsureNamespace(ctx); err != nil {
@@ -156,5 +156,79 @@ func TestStore_EnsureNamespace(t *testing.T) {
 	// Calling again should not error (idempotent).
 	if err := store.EnsureNamespace(ctx); err != nil {
 		t.Fatalf("second EnsureNamespace: %v", err)
+	}
+}
+
+func TestStore_SiteScoped(t *testing.T) {
+	cs := fake.NewSimpleClientset()
+	ctx := context.Background()
+
+	// Create two stores with different site names.
+	storeA := NewStore(cs, "alpha")
+	storeB := NewStore(cs, "beta")
+
+	// Verify they use different ConfigMap names.
+	if storeA.ConfigMapName() != "nstack-state-alpha" {
+		t.Errorf("expected ConfigMapName=nstack-state-alpha, got %s", storeA.ConfigMapName())
+	}
+	if storeB.ConfigMapName() != "nstack-state-beta" {
+		t.Errorf("expected ConfigMapName=nstack-state-beta, got %s", storeB.ConfigMapName())
+	}
+
+	// Ensure namespace for both.
+	if err := storeA.EnsureNamespace(ctx); err != nil {
+		t.Fatalf("EnsureNamespace storeA: %v", err)
+	}
+
+	// Save different state to each.
+	stA := NewState("alpha", "gpu-full")
+	stA.Stages[4] = &StageState{Status: "deployed", Version: "1.0.0"}
+	if err := storeA.Save(ctx, stA); err != nil {
+		t.Fatalf("Save storeA: %v", err)
+	}
+
+	stB := NewState("beta", "minimal")
+	stB.Stages[5] = &StageState{Status: "deployed", Version: "2.0.0"}
+	if err := storeB.Save(ctx, stB); err != nil {
+		t.Fatalf("Save storeB: %v", err)
+	}
+
+	// Verify they load independently.
+	loadedA, err := storeA.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load storeA: %v", err)
+	}
+	if loadedA.Site != "alpha" {
+		t.Errorf("storeA: expected site=alpha, got %s", loadedA.Site)
+	}
+	if _, ok := loadedA.Stages[4]; !ok {
+		t.Error("storeA: expected stage 4")
+	}
+
+	loadedB, err := storeB.Load(ctx)
+	if err != nil {
+		t.Fatalf("Load storeB: %v", err)
+	}
+	if loadedB.Site != "beta" {
+		t.Errorf("storeB: expected site=beta, got %s", loadedB.Site)
+	}
+	if _, ok := loadedB.Stages[5]; !ok {
+		t.Error("storeB: expected stage 5")
+	}
+
+	// Verify no cross-contamination.
+	if _, ok := loadedA.Stages[5]; ok {
+		t.Error("storeA should not have stage 5 from storeB")
+	}
+	if _, ok := loadedB.Stages[4]; ok {
+		t.Error("storeB should not have stage 4 from storeA")
+	}
+}
+
+func TestStore_DefaultName(t *testing.T) {
+	cs := fake.NewSimpleClientset()
+	store := NewStore(cs, "")
+	if store.ConfigMapName() != "nstack-state" {
+		t.Errorf("expected ConfigMapName=nstack-state, got %s", store.ConfigMapName())
 	}
 }

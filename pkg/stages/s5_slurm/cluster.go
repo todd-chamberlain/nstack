@@ -18,7 +18,7 @@ const (
 // installSlurmCluster deploys the slurm-cluster Helm chart from the cloned soperator
 // repository. Values are loaded from embedded common.yaml and distribution-specific
 // overlay, then merged with any site overrides.
-func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, printer *output.Printer) error {
+func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site, profile *config.Profile, repoDir string, cluster config.ClusterConfig, printer *output.Printer) error {
 	// Run helm dependency update on the slurm-cluster chart.
 	chartDir := filepath.Join(repoDir, "helm", "slurm-cluster")
 	if err := helmDepUpdate(chartDir); err != nil {
@@ -46,7 +46,7 @@ func installSlurmCluster(ctx context.Context, hc *helm.Client, site *config.Site
 		ctx,
 		slurmClusterRelease,
 		chartDir, // local chart path
-		slurmNamespace,
+		cluster.Namespace,
 		mergedValues,
 		helm.WithCreateNamespace(),
 		helm.WithTimeout(15*time.Minute),
