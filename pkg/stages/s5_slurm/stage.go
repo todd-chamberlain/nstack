@@ -269,6 +269,18 @@ func (s *SlurmStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.Client
 		}
 	}
 
+	// Configure federation if enabled (non-fatal on failure since the cluster
+	// is operational without federation).
+	if site != nil && site.Federation != nil {
+		if err := setupFederation(ctx, kc, site, s.cluster, printer); err != nil {
+			printer.Debugf("federation setup (non-fatal): %v", err)
+		}
+		// Expose slurmdbd over Tailscale if this site deploys the accounting DB.
+		if err := exposeSlurmdbdOverTailscale(ctx, kc, site, s.cluster, printer); err != nil {
+			printer.Debugf("slurmdbd tailscale exposure (non-fatal): %v", err)
+		}
+	}
+
 	return nil
 }
 

@@ -52,6 +52,17 @@ func MergeValues(layers ...map[string]interface{}) map[string]interface{} {
 	return result
 }
 
+// MergeValuesInto performs an in-place deep merge of src into dst.
+// This is useful when you need to add values to an existing map without
+// creating a new one (e.g., when modifying Helm values that are already
+// referenced elsewhere).
+func MergeValuesInto(dst, src map[string]interface{}) {
+	if src == nil {
+		return
+	}
+	mergeMaps(dst, src)
+}
+
 // mergeMaps recursively merges src into dst. Values in src override dst.
 // Nested maps are merged recursively rather than replaced wholesale.
 func mergeMaps(dst, src map[string]interface{}) {

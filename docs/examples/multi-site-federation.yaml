@@ -1,0 +1,70 @@
+# Multi-site Slurm federation with Tailscale overlay
+# Site A: home lab (runs slurmdbd + Slurm)
+# Site B: data center (runs Slurm, connects to Site A's slurmdbd)
+
+version: v1
+sites:
+  home-lab:
+    profile: k3s-single
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    overlay:
+      type: tailscale
+      endpoint: 192.168.1.64
+    cluster:
+      name: slurm-home
+      namespace: slurm
+    federation:
+      name: nstack-fed
+      features:
+        - site-home
+        - has-small-gpu
+      accounting:
+        host: slurm-home-slurmdbd.your-tailnet.ts.net
+        deploy: true
+        database:
+          host: mariadb.slurm.svc.cluster.local
+          name: slurm_acct_db
+          user: slurm
+          password: changeme
+      telemetry:
+        type: thanos
+        remoteWriteUrl: http://thanos-receive.monitoring.svc:19291/api/v1/receive
+    overrides:
+      tailscale:
+        oauth:
+          clientId: "tskey-client-xxx"
+          clientSecret: "tskey-secret-xxx"
+        subnetRoutes:
+          - "10.42.0.0/16"
+          - "10.43.0.0/16"
+
+  dc-east:
+    profile: kubeadm
+    kubeconfig: ~/.kube/dc-east.yaml
+    overlay:
+      type: tailscale
+      endpoint: 203.0.113.10
+    cluster:
+      name: slurm-east
+      namespace: slurm
+    federation:
+      name: nstack-fed
+      features:
+        - site-dc-east
+        - has-h100
+        - has-imagenet
+      accounting:
+        host: slurm-home-slurmdbd.your-tailnet.ts.net
+        port: 6819
+        deploy: false  # Uses home-lab's slurmdbd over Tailscale
+      telemetry:
+        type: thanos
+        remoteWriteUrl: http://thanos-receive.your-tailnet.ts.net:19291/api/v1/receive
+    overrides:
+      tailscale:
+        oauth:
+          clientId: "tskey-client-yyy"
+          clientSecret: "tskey-secret-yyy"
+        subnetRoutes:
+          - "10.52.0.0/16"
+          - "10.53.0.0/16"

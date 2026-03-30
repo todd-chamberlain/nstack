@@ -1,0 +1,5 @@
+# Federation-enabled slurm-cluster values
+# Applied when site.Federation is configured
+slurmNodes:
+  accounting:
+    enabled: true

@@ -2,11 +2,15 @@ package s3_networking
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/helm"
@@ -42,7 +46,7 @@ func configureOverlay(ctx context.Context, kc *kube.Client, hc *helm.Client, sit
 		return configureWireGuard(ctx, kc, profile, printer)
 
 	case OverlayTailscale:
-		return configureTailscale(ctx, hc, site, printer)
+		return configureTailscale(ctx, hc, site, kc, printer)
 
 	default:
 		return fmt.Errorf("unsupported overlay type: %s", overlayType)
@@ -81,7 +85,7 @@ func configureWireGuard(ctx context.Context, kc *kube.Client, profile *config.Pr
 }
 
 // configureTailscale deploys the Tailscale Kubernetes Operator for overlay networking.
-func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site, printer *output.Printer) error {
+func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site, kc *kube.Client, printer *output.Printer) error {
 	// Tailscale K8s Operator deployment
 	// Repo: https://pkgs.tailscale.com/helmcharts
 	// Chart: tailscale/tailscale-operator
@@ -112,7 +116,7 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 		return fmt.Errorf("tailscale overlay requires oauth.clientId and oauth.clientSecret in site overrides['tailscale']")
 	}
 
-	return hc.UpgradeOrInstall(
+	if err := hc.UpgradeOrInstall(
 		ctx,
 		"tailscale-operator",
 		"tailscale/tailscale-operator",
@@ -121,5 +125,91 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 		helm.WithCreateNamespace(),
 		helm.WithWait(),
 		helm.WithTimeout(5*time.Minute),
+	); err != nil {
+		return err
+	}
+
+	// Create subnet router Connector CRD if the site has an overlay configured.
+	if kc != nil {
+		if err := configureTailscaleSubnetRouter(ctx, kc, site, printer); err != nil {
+			printer.Debugf("tailscale subnet router (non-fatal): %v", err)
+		}
+	}
+
+	return nil
+}
+
+// configureTailscaleSubnetRouter creates a Tailscale Connector CRD for subnet
+// routing, allowing cross-site pod and service CIDR reachability over the tailnet.
+func configureTailscaleSubnetRouter(ctx context.Context, kc *kube.Client, site *config.Site, printer *output.Printer) error {
+	if site == nil || site.Overlay == nil || site.Overlay.Type != "tailscale" {
+		return nil
+	}
+
+	// Default routes: pod CIDR and service CIDR.
+	routes := []interface{}{"10.42.0.0/16", "10.43.0.0/16"}
+
+	// Override routes from site config if provided.
+	if site.Overrides != nil {
+		if ts, ok := site.Overrides["tailscale"]; ok {
+			if sr, ok := ts["subnetRoutes"]; ok {
+				if routeList, ok := sr.([]interface{}); ok && len(routeList) > 0 {
+					routes = routeList
+				}
+			}
+		}
+	}
+
+	connectorName := "nstack-subnet-router"
+	connectorNS := "tailscale-system"
+
+	hostnamePrefix := site.Name
+	if hostnamePrefix == "" {
+		hostnamePrefix = "nstack"
+	}
+
+	connector := &unstructured.Unstructured{
+		Object: map[string]interface{}{
+			"apiVersion": "tailscale.com/v1alpha1",
+			"kind":       "Connector",
+			"metadata": map[string]interface{}{
+				"name":      connectorName,
+				"namespace": connectorNS,
+			},
+			"spec": map[string]interface{}{
+				"hostnamePrefix": hostnamePrefix,
+				"subnetRouter": map[string]interface{}{
+					"advertiseRoutes": routes,
+				},
+			},
+		},
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "tailscale.com",
+		Version:  "v1alpha1",
+		Resource: "connectors",
+	}
+
+	// Server-side apply for create-or-update semantics.
+	data, err := json.Marshal(connector.Object)
+	if err != nil {
+		return fmt.Errorf("marshaling connector CRD: %w", err)
+	}
+
+	_, err = kc.DynamicClient().Resource(gvr).Namespace(connectorNS).Patch(
+		ctx,
+		connectorName,
+		types.ApplyPatchType,
+		data,
+		metav1.PatchOptions{
+			FieldManager: "nstack",
+		},
 	)
+	if err != nil {
+		return fmt.Errorf("applying tailscale connector CRD: %w", err)
+	}
+
+	printer.Debugf("created Tailscale subnet router for site %s", site.Name)
+	return nil
 }

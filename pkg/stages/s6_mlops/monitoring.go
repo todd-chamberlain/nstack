@@ -10,6 +10,39 @@ import (
 	"github.com/todd-chamberlain/nstack/pkg/output"
 )
 
+// applyFederationTelemetry injects Thanos/Prometheus remote_write configuration
+// and external labels into the monitoring values when the site has federation
+// telemetry configured.
+func applyFederationTelemetry(mergedValues map[string]interface{}, site *config.Site) {
+	if site == nil || site.Federation == nil || site.Federation.Telemetry == nil {
+		return
+	}
+	tel := site.Federation.Telemetry
+	if tel.RemoteWriteURL == "" {
+		return
+	}
+
+	cluster := config.ResolveCluster(site)
+
+	telemetryValues := map[string]interface{}{
+		"prometheus": map[string]interface{}{
+			"prometheusSpec": map[string]interface{}{
+				"remoteWrite": []interface{}{
+					map[string]interface{}{
+						"url": tel.RemoteWriteURL,
+					},
+				},
+				"externalLabels": map[string]interface{}{
+					"cluster": cluster.Name,
+					"site":    site.Name,
+				},
+			},
+		},
+	}
+
+	helm.MergeValuesInto(mergedValues, telemetryValues)
+}
+
 const (
 	prometheusRepo     = "https://prometheus-community.github.io/helm-charts"
 	prometheusRepoName = "prometheus-community"
@@ -42,7 +75,10 @@ func deployMonitoring(ctx context.Context, hc *helm.Client, site *config.Site, p
 		return fmt.Errorf("loading monitoring values: %w", err)
 	}
 
-	// 3. Install or upgrade the chart.
+	// 3. Inject federation telemetry (remote_write) if configured.
+	applyFederationTelemetry(mergedValues, site)
+
+	// 4. Install or upgrade the chart.
 	if err := hc.UpgradeOrInstall(
 		ctx,
 		monitoringRelease,

@@ -14,10 +14,52 @@ type Site struct {
 	Cluster    *ClusterConfig                    `yaml:"cluster,omitempty"`
 	Overlay    *OverlayConfig                    `yaml:"overlay,omitempty"`
 	Fabric     *FabricConfig                     `yaml:"fabric,omitempty"`
+	Federation *FederationConfig                 `yaml:"federation,omitempty"`
 	Nodes      []Node                            `yaml:"nodes,omitempty"`
 	Overrides  map[string]map[string]interface{} `yaml:"overrides,omitempty"`
 	Hooks      map[string]*HookConfig            `yaml:"hooks,omitempty"`
 	Versions   map[string]string                 `yaml:"versions,omitempty"`
+}
+
+// FederationConfig defines multi-site Slurm federation settings.
+type FederationConfig struct {
+	// Name of the federation (shared across all federated sites)
+	Name string `yaml:"name"`
+	// Features are cluster-level features for job routing (e.g., "site-us-east,has-imagenet,gpu")
+	Features []string `yaml:"features,omitempty"`
+	// Accounting configures the shared slurmdbd for federation
+	Accounting *AccountingConfig `yaml:"accounting,omitempty"`
+	// Telemetry configures cross-site monitoring
+	Telemetry *TelemetryConfig `yaml:"telemetry,omitempty"`
+}
+
+// AccountingConfig defines Slurm accounting database settings.
+type AccountingConfig struct {
+	// Host is the slurmdbd hostname (can be a Tailscale MagicDNS name)
+	Host string `yaml:"host"`
+	// Port is the slurmdbd port (default 6819)
+	Port int `yaml:"port,omitempty"`
+	// Deploy controls whether NStack deploys slurmdbd on this site
+	Deploy bool `yaml:"deploy"`
+	// Database connection for slurmdbd (only used when Deploy=true)
+	Database *DatabaseConfig `yaml:"database,omitempty"`
+}
+
+// DatabaseConfig defines the MariaDB/MySQL connection for slurmdbd.
+type DatabaseConfig struct {
+	Host     string `yaml:"host"`
+	Port     int    `yaml:"port,omitempty"`
+	Name     string `yaml:"name"`
+	User     string `yaml:"user"`
+	Password string `yaml:"password"`
+}
+
+// TelemetryConfig defines cross-site monitoring settings.
+type TelemetryConfig struct {
+	// Type: "thanos" or "prometheus-federation" or "none"
+	Type string `yaml:"type"`
+	// RemoteWriteURL is the Thanos Receive endpoint for this site's Prometheus
+	RemoteWriteURL string `yaml:"remoteWriteUrl,omitempty"`
 }
 
 // OverlayConfig defines network overlay settings for cross-node communication.
