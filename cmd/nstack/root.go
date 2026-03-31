@@ -45,6 +45,7 @@ func init() {
 	rootCmd.AddCommand(versionCmd)
 	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(detectCmd)
+	rootCmd.AddCommand(discoverCmd)
 	rootCmd.AddCommand(planCmd)
 	rootCmd.AddCommand(validateCmd)
 	rootCmd.AddCommand(deployCmd)
