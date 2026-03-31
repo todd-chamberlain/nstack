@@ -1,14 +1,13 @@
 name: nebius
-description: Nebius managed Kubernetes cluster
+description: Nebius AI Cloud managed Kubernetes with InfiniBand GPU fabric
 kubernetes:
   distribution: managed
   multiNode: true
   cgroupV2: true
   containerdSocket: /run/containerd/containerd.sock
-  storageClass: nebius-network-ssd
+  storageClass: csi-mounted-fs-path
   runtimeClass: nvidia
-patches:
-  containerdSocketBind: false
+patches: {}
 storage:
   type: pvc
 networking:

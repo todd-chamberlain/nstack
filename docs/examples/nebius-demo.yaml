@@ -1,0 +1,79 @@
+# NStack Nebius Cloud Demo
+# Scales from 8 GPUs (1 node) to 576 GPUs (72 nodes)
+#
+# Usage:
+#   nstack deploy --site nebius-demo --from stage4
+#
+# Prerequisites:
+#   - Nebius Managed K8s cluster with GPU node group
+#   - GPU Operator and Network Operator installed
+#   - Shared filesystem (csi-mounted-fs-path StorageClass)
+#   - kubeconfig saved locally
+
+version: v1
+sites:
+  nebius-demo:
+    profile: nebius
+    kubeconfig: ~/.kube/nebius-demo.yaml
+
+    cluster:
+      name: nstack-demo
+      namespace: slurm
+
+    # Component versions (override defaults)
+    # versions:
+    #   soperator: "3.0.2"
+    #   gpu-operator: "v25.10.1"
+
+    # Scale: change workerCount to scale GPUs
+    # 1 = 8 GPUs, 9 = 72 GPUs, 72 = 576 GPUs
+    overrides:
+      nodesets:
+        nodesets:
+          - name: worker-gpu
+            replicas: 9  # <-- CHANGE THIS to scale
+
+      slurm-cluster:
+        # Node group IDs from Nebius Console or Terraform output
+        k8sNodeFilters:
+          - name: gpu
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: nebius.com/node-group-id
+                          operator: In
+                          values:
+                            - "<GPU-NODE-GROUP-ID>"  # From: nebius mk8s node-group list
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+          - name: no-gpu
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: nebius.com/node-group-id
+                          operator: In
+                          values:
+                            - "<CPU-NODE-GROUP-ID>"  # From: nebius mk8s node-group list
+
+        slurmNodes:
+          login:
+            sshRootPublicKeys:
+              - "ssh-ed25519 AAAA... your-key-here"
+
+      # GPU Operator (if managing yourself, not using Nebius managed GPU Operator)
+      # gpu-operator:
+      #   driver:
+      #     enabled: false  # Nebius pre-installs drivers
+
+      # Monitoring
+      monitoring:
+        grafana:
+          adminPassword: "change-me-in-production"
+          service:
+            type: LoadBalancer

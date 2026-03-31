@@ -1,0 +1,79 @@
+# Nebius Cloud nodesets overlay
+# Override gpu count and CPU topology via site.overrides.nodesets
+images:
+  munge:
+    repository: cr.eu-north1.nebius.cloud/soperator/munge
+    tag: "3.0.2-slurm25.11.3"
+  slurmd:
+    repository: cr.eu-north1.nebius.cloud/soperator/worker_slurmd
+    tag: "3.0.2-slurm25.11.3"
+
+nodesets:
+  - name: worker-gpu
+    replicas: 1  # Override via site.overrides.nodesets
+    maxUnavailable: 1
+    ephemeralNodes: false
+    gpu:
+      enabled: true
+      nvidia:
+        gdrCopyEnabled: true  # GDRCopy enabled for InfiniBand
+    nodeConfig:
+      features:
+        - gpu
+        - h100  # Override for h200/b200
+        - infiniband
+      # H100 SXM: 2 sockets, 64 cores per socket, 2 threads per core
+      static: "Boards=1 SocketsPerBoard=2 CoresPerSocket=64 ThreadsPerCore=2"
+      dynamic: "InstanceId={{ .PodName }}"
+      gresConfig:
+        - "AutoDetect=nvidia"
+    slurmd:
+      image:
+        repository: cr.eu-north1.nebius.cloud/soperator/worker_slurmd
+        tag: "3.0.2-slurm25.11.3"
+        pullPolicy: IfNotPresent
+      customEnv:
+        - name: NVIDIA_DRIVER_CAPABILITIES
+          value: "compute,utility"
+        - name: NCCL_IB_HCA
+          value: "mlx5"
+        - name: NCCL_SOCKET_IFNAME
+          value: "eth0"
+      port: 6818
+      resources:
+        cpu: "64000m"       # 64 vCPU per H100 node (half of 128)
+        memory: "800Gi"     # 800 GiB per node (half of 1600)
+        ephemeralStorage: "100Gi"
+        gpu: 8
+      volumes:
+        spool:
+          volumeClaimTemplateSpec:
+            storageClassName: csi-mounted-fs-path
+            accessModes: ["ReadWriteOnce"]
+            resources:
+              requests:
+                storage: "50Gi"
+        jail:
+          persistentVolumeClaim:
+            claimName: jail-pvc
+        sharedMemorySize: "64Gi"  # Large for NCCL
+      security:
+        appArmorProfile: unconfined
+    munge:
+      image:
+        repository: cr.eu-north1.nebius.cloud/soperator/munge
+        tag: "3.0.2-slurm25.11.3"
+        pullPolicy: IfNotPresent
+      resources:
+        cpu: "2000m"
+        memory: "4Gi"
+        ephemeralStorage: "10Gi"
+      security:
+        appArmorProfile: unconfined
+    sssd:
+      enabled: false
+    tolerations:
+      - key: nvidia.com/gpu
+        operator: Exists
+        effect: NoSchedule
+    priorityClass: ""

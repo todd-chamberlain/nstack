@@ -45,8 +45,8 @@ func TestLoadProfile_Nebius(t *testing.T) {
 	if p.Storage.Type != "pvc" {
 		t.Errorf("expected storage type 'pvc', got %q", p.Storage.Type)
 	}
-	if p.Kubernetes.StorageClass != "nebius-network-ssd" {
-		t.Errorf("expected storageClass 'nebius-network-ssd', got %q", p.Kubernetes.StorageClass)
+	if p.Kubernetes.StorageClass != "csi-mounted-fs-path" {
+		t.Errorf("expected storageClass 'csi-mounted-fs-path', got %q", p.Kubernetes.StorageClass)
 	}
 }
 

@@ -1,0 +1,35 @@
+# NStack Nebius Demo — Minimal 8 GPU (1 node)
+version: v1
+sites:
+  nebius-8gpu:
+    profile: nebius
+    kubeconfig: ~/.kube/nebius.yaml
+    cluster:
+      name: demo-8gpu
+      namespace: slurm
+    overrides:
+      nodesets:
+        nodesets:
+          - name: worker-gpu
+            replicas: 1
+      slurm-cluster:
+        k8sNodeFilters:
+          - name: gpu
+            affinity:
+              nodeAffinity:
+                requiredDuringSchedulingIgnoredDuringExecution:
+                  nodeSelectorTerms:
+                    - matchExpressions:
+                        - key: nebius.com/node-group-id
+                          operator: In
+                          values: ["<GPU-NODE-GROUP-ID>"]
+            tolerations:
+              - key: nvidia.com/gpu
+                operator: Exists
+                effect: NoSchedule
+          - name: no-gpu
+            tolerations: []
+        slurmNodes:
+          login:
+            sshRootPublicKeys:
+              - "ssh-ed25519 AAAA..."
