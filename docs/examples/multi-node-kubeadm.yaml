@@ -1,0 +1,75 @@
+# Multi-node kubeadm cluster with dynamic storage
+#
+# Standard Kubernetes cluster provisioned with kubeadm. Uses PVC-based
+# dynamic storage instead of hostPath, which is required for multi-node
+# clusters where pods can schedule on any node.
+#
+# This example includes:
+#   - 3 worker nodes with GPUs
+#   - Version overrides for GPU Operator and Soperator
+#   - Site-specific Helm value overrides
+#   - Custom cluster identity
+#
+# Prerequisites:
+#   - kubeadm cluster initialized with control plane
+#   - Worker nodes joined and Ready
+#   - NVIDIA container runtime on GPU nodes
+#   - A StorageClass that supports ReadWriteMany (e.g., NFS, Rook-Ceph)
+#   - cert-manager CRDs (installed by Stage 4 automatically)
+#
+# Usage:
+#   nstack deploy --site prod
+#   nstack deploy --site prod --from stage4   # skip discovery/provisioning/k8s
+#   nstack deploy --site prod --parallel      # run independent stages concurrently
+
+version: v1
+sites:
+  prod:
+    profile: kubeadm
+    kubeconfig: ~/.kube/config
+    cluster:
+      name: gpu-cluster
+      namespace: slurm-prod
+    nodes:
+      - name: gpu-worker-01
+        ip: 10.0.1.11
+        role: worker
+        gpus:
+          - model: A100
+            count: 4
+            vram: 80GB
+      - name: gpu-worker-02
+        ip: 10.0.1.12
+        role: worker
+        gpus:
+          - model: A100
+            count: 4
+            vram: 80GB
+      - name: gpu-worker-03
+        ip: 10.0.1.13
+        role: worker
+        gpus:
+          - model: A100
+            count: 4
+            vram: 80GB
+    versions:
+      gpu-operator: "v24.9.0"
+      soperator: "3.0.2"
+      cert-manager: "v1.16.3"
+    overrides:
+      gpu-operator:
+        driver:
+          enabled: true
+          version: "550.127.08"
+        toolkit:
+          enabled: true
+      slurm-cluster:
+        slurmNodes:
+          worker:
+            slurmd:
+              gpuPerNode: 4
+      monitoring:
+        prometheus:
+          retention: 30d
+        grafana:
+          adminPassword: changeme

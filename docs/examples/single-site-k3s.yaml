@@ -1,0 +1,22 @@
+# Minimal single-node K3s deployment
+#
+# This is the simplest NStack configuration: one site, one node, K3s with
+# hostPath storage. Suitable for home labs, dev machines, and single-GPU
+# workstations.
+#
+# Prerequisites:
+#   - K3s installed: curl -sfL https://get.k3s.io | sh -
+#   - NVIDIA container runtime configured
+#   - At least one NVIDIA GPU
+#
+# Usage:
+#   nstack deploy --site lab
+
+version: v1
+sites:
+  lab:
+    profile: k3s-single
+    kubeconfig: /etc/rancher/k3s/k3s.yaml
+    cluster:
+      name: slurm1
+      namespace: slurm
