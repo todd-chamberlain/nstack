@@ -1,7 +1,7 @@
 name: nebius
 description: Nebius AI Cloud managed Kubernetes with InfiniBand GPU fabric
 kubernetes:
-  distribution: managed
+  distribution: nebius
   multiNode: true
   cgroupV2: true
   containerdSocket: /run/containerd/containerd.sock

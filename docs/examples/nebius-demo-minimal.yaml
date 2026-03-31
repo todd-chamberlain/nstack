@@ -1,4 +1,6 @@
 # NStack Nebius Demo — Minimal 8 GPU (1 node)
+# Default is 1 replica (8 GPUs). Scale via CLI:
+#   nstack deploy --site nebius-8gpu --from stage4 --set nodesets.nodesets[0].replicas=9
 version: v1
 sites:
   nebius-8gpu:
@@ -8,10 +10,6 @@ sites:
       name: demo-8gpu
       namespace: slurm
     overrides:
-      nodesets:
-        nodesets:
-          - name: worker-gpu
-            replicas: 1
       slurm-cluster:
         k8sNodeFilters:
           - name: gpu

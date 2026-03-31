@@ -168,12 +168,12 @@ func printDiscoverTable(hosts []discover.DiscoveredHost) {
 		}
 
 		access := buildAccessStr(h)
-		os := h.OS
-		if os == "" {
-			os = "(no OS)"
+		osName := h.OS
+		if osName == "" {
+			osName = "(no OS)"
 		}
-		if len(os) > 18 {
-			os = os[:18] + ".."
+		if len(osName) > 18 {
+			osName = osName[:18] + ".."
 		}
 
 		gpuStr := "None"
@@ -202,7 +202,7 @@ func printDiscoverTable(hosts []discover.DiscoveredHost) {
 		entryStr := fmt.Sprintf("%s -> Stage %s", h.EntryPoint, h.RecommendedStages)
 
 		fmt.Printf("%-15s %-10s %-15s %-20s %-15s %-15s %s\n",
-			h.IP, hostType, access, os, gpuStr, k8sStr, entryStr)
+			h.IP, hostType, access, osName, gpuStr, k8sStr, entryStr)
 	}
 }
 

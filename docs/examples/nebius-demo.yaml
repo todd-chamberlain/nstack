@@ -25,14 +25,12 @@ sites:
     #   soperator: "3.0.2"
     #   gpu-operator: "v25.10.1"
 
-    # Scale: change workerCount to scale GPUs
-    # 1 = 8 GPUs, 9 = 72 GPUs, 72 = 576 GPUs
-    overrides:
-      nodesets:
-        nodesets:
-          - name: worker-gpu
-            replicas: 9  # <-- CHANGE THIS to scale
+    # Scale GPUs via CLI flag (avoids YAML array replacement issues):
+    #   nstack deploy --site nebius-demo --from stage4 --set nodesets.nodesets[0].replicas=9
+    #
+    # 1 = 8 GPUs, 9 = 72 GPUs, 72 = 576 GPUs (H100: 8 GPUs per node)
 
+    overrides:
       slurm-cluster:
         # Node group IDs from Nebius Console or Terraform output
         k8sNodeFilters:

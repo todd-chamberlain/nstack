@@ -111,10 +111,7 @@ func kubeconfigPlaceholder(rec SiteRecommendation) string {
 }
 
 // nodeRole assigns a role based on position: first node is server, rest are workers.
-func nodeRole(index, total int) string {
-	if total == 1 {
-		return "server"
-	}
+func nodeRole(index, _ int) string {
 	if index == 0 {
 		return "server"
 	}

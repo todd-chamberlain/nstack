@@ -33,8 +33,8 @@ func TestLoadProfile_Nebius(t *testing.T) {
 		t.Fatalf("LoadProfile(nebius) error: %v", err)
 	}
 
-	if p.Kubernetes.Distribution != "managed" {
-		t.Errorf("expected distribution 'managed', got %q", p.Kubernetes.Distribution)
+	if p.Kubernetes.Distribution != "nebius" {
+		t.Errorf("expected distribution 'nebius', got %q", p.Kubernetes.Distribution)
 	}
 	if p.Patches.ContainerdSocketBind {
 		t.Error("expected containerdSocketBind=false for Nebius")

@@ -17,24 +17,20 @@ import (
 // component statuses. It is used by every stage's Status() method.
 func DetermineOverallStatus(components []ComponentStatus) string {
 	allRunning := true
-	anyNotInstalled := false
 	anyDegraded := false
 	for _, c := range components {
 		switch c.Status {
-		case "not-installed":
-			anyNotInstalled = true
-			allRunning = false
+		case "running", "scaled-down":
+			// ok
 		case "degraded", "failed":
 			anyDegraded = true
 			allRunning = false
-		case "running", "scaled-down":
-			// ok
 		default:
 			allRunning = false
 		}
 	}
 	switch {
-	case allRunning && !anyNotInstalled:
+	case allRunning:
 		return "deployed"
 	case anyDegraded:
 		return "degraded"

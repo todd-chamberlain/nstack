@@ -161,7 +161,6 @@ func configureTailscaleSubnetRouter(ctx context.Context, kc *kube.Client, site *
 	}
 
 	connectorName := "nstack-subnet-router"
-	connectorNS := "tailscale-system"
 
 	hostnamePrefix := site.Name
 	if hostnamePrefix == "" {
@@ -173,8 +172,7 @@ func configureTailscaleSubnetRouter(ctx context.Context, kc *kube.Client, site *
 			"apiVersion": "tailscale.com/v1alpha1",
 			"kind":       "Connector",
 			"metadata": map[string]interface{}{
-				"name":      connectorName,
-				"namespace": connectorNS,
+				"name": connectorName,
 			},
 			"spec": map[string]interface{}{
 				"hostnamePrefix": hostnamePrefix,
@@ -197,7 +195,8 @@ func configureTailscaleSubnetRouter(ctx context.Context, kc *kube.Client, site *
 		return fmt.Errorf("marshaling connector CRD: %w", err)
 	}
 
-	_, err = kc.DynamicClient().Resource(gvr).Namespace(connectorNS).Patch(
+	// Connector is cluster-scoped — do not use Namespace().
+	_, err = kc.DynamicClient().Resource(gvr).Patch(
 		ctx,
 		connectorName,
 		types.ApplyPatchType,
