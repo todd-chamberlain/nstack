@@ -4,7 +4,9 @@
 
 | Version | Supported |
 |---------|-----------|
-| 0.1.x   | Yes       |
+| 0.4.x   | Yes       |
+| 0.3.x   | Yes       |
+| < 0.3   | No        |
 
 ## Reporting a Vulnerability
 
@@ -24,3 +26,6 @@ NStack manages Kubernetes infrastructure and executes Helm operations with clust
 - **No shell interpolation**: All `os/exec` calls pass arguments as separate array elements, preventing injection
 - **Kubeconfig isolation**: Each site uses its own kubeconfig; multi-site operations never cross credentials
 - **Config file trust**: `~/.nstack/config.yaml` is trusted input (same trust level as `~/.kube/config`)
+- **Input validation**: Federation names, cluster names, and features are validated against `[a-zA-Z0-9_-]+` before use in exec calls
+- **File-based writes**: Systemd unit files are written via `os.WriteFile`, not shell interpolation
+- **Site-scoped state**: Each site gets its own state ConfigMap (`nstack-state-<site>`), preventing cross-site interference
