@@ -70,17 +70,97 @@ Level 2: S2
 ...
 ```
 
+## Network Discovery
+
+The `nstack discover` command is a standalone pre-Kubernetes operation that scans a network range to find hosts and classify them for deployment. Unlike the staged pipeline (which requires an existing kubeconfig), discovery operates entirely outside the cluster via network probes.
+
+### Discovery Flow
+
+```mermaid
+graph TD
+    A[nstack discover --network 10.0.0.0/24] --> B[CIDR Expansion]
+    B --> C[Per-Host Parallel Probes]
+    C --> D[IPMI Probe<br/>UDP 623]
+    C --> E[Redfish Probe<br/>HTTPS 443]
+    C --> F[SSH Probe<br/>Port 22]
+    C --> G[K8s API Probe<br/>Port 6443]
+    F --> F1[hostname]
+    F --> F2[systemd-detect-virt]
+    F --> F3[nvidia-smi]
+    F --> F4[os-release]
+    F --> F5[kubectl version]
+    D & E & F & G --> H[Classify Host]
+    H --> I{Entry Point}
+    I -->|BMC only| J[bare-metal → Stage 0-6]
+    I -->|SSH, no K8s| K[needs-k8s → Stage 2-6]
+    I -->|K8s running| L[k8s-ready → Stage 4-6]
+    J & K & L --> M[Generate Site Config]
+```
+
+### Three Entry Points
+
+NStack supports three distinct entry points depending on what the discovery scan finds. Each entry point skips the stages that are already satisfied, so a host with K8s already running jumps straight to GPU stack deployment.
+
+```mermaid
+graph LR
+    subgraph Entry 1: Bare Metal
+        BM[Raw Hardware] -->|IPMI/Redfish| S0[Stage 0: Discover]
+        S0 --> S1[Stage 1: Provision OS]
+        S1 --> S2a[Stage 2: Bootstrap K8s]
+    end
+    subgraph Entry 2: Provisioned Host
+        PH[Has OS + SSH] -->|SSH probe| S2b[Stage 2: Bootstrap K8s]
+    end
+    subgraph Entry 3: Existing K8s
+        EK[Has Kubeconfig] -->|K8s API| S4[Stage 4: GPU Stack]
+    end
+    S2a --> S3[Stage 3+]
+    S2b --> S3
+    S4 --> S5[Stage 5: Slurm]
+    S3 --> S4
+    S5 --> S6[Stage 6: MLOps]
+```
+
+### Discover Package Architecture
+
+The discovery system lives in `pkg/discover/` and is composed of four layers:
+
+**Scanner orchestrator** (`scanner.go`): The `Scan()` function expands the CIDR range, enforces the /20 limit (4096 hosts max), and dispatches per-host goroutines controlled by a semaphore of configurable width (default 32 workers). Each host is probed by `scanHost()`, which launches BMC, SSH, and K8s API probes in parallel and merges results.
+
+**Probe functions** (`bmc_probe.go`, `ssh.go`, `kube_probe.go`): Each probe runs independently per host. The BMC probe tries Redfish (HTTPS 443) first, falling back to IPMI (ASF Presence Ping on UDP 623). The SSH probe connects and runs assessment commands (`hostname`, `systemd-detect-virt`, `nvidia-smi`, `cat /etc/os-release`, `kubectl version`). The K8s API probe hits the `/version` endpoint on ports 6443 and 16443.
+
+**Host classification** (`classify.go`): After probes complete, `classifyHost()` assigns an entry point (`bare-metal`, `needs-k8s`, `k8s-ready`) and recommended stage range. The `GroupHosts()` function clusters similar hosts by entry point, GPU model, OS, and physical/virtual status into `SiteRecommendation` structs for config generation.
+
+**Config generation** (`config.go`): `GenerateConfig()` takes classified hosts and produces a complete NStack YAML config with site entries, node lists, GPU inventories, profile selection, and commented deploy commands. Config files are written with `0600` permissions.
+
+#### Security Hardening
+
+- SSH key bytes are zeroed after parsing (`ssh.go:175`) to avoid leaving secrets in heap memory.
+- Redfish paths are validated to start with `/redfish/` before following member links (`bmc_probe.go:169`), preventing SSRF through malicious BMC responses.
+- PCIe device iteration is capped at 256 (`bmc_probe.go:166`) to prevent runaway enumeration on large systems.
+- All network operations use context-aware dials, so `--timeout` and `ctrl-c` cancellation propagate to every TCP/UDP connection.
+- CIDR scans are limited to /20 (4096 hosts) to prevent accidental scans of large subnets.
+- Generated config files are written with `0600` permissions.
+- Credentials (SSH keys, BMC passwords) are never written to the generated config.
+
 ## Deploy Sequence
 
-This is the detailed sequence of operations when running `nstack deploy --site lab` against a cluster that already has Kubernetes running.
+This is the detailed sequence of operations when running `nstack deploy --site lab` against a cluster that already has Kubernetes running. The discover command can optionally precede this to generate the site config automatically.
 
 ```mermaid
 sequenceDiagram
     participant User
     participant NStack
+    participant Network
     participant Helm
     participant K8s
     participant Operator
+
+    User->>NStack: nstack discover --network 10.0.0.0/24
+    NStack->>Network: Probe BMC/SSH/K8s per host
+    Network-->>NStack: Classified hosts
+    NStack->>NStack: Generate site config
+    NStack->>User: Site config written
 
     User->>NStack: nstack deploy --site lab
     NStack->>NStack: Load config + profile
@@ -223,6 +303,7 @@ nstack/
     deploy_cmd.go       # nstack deploy
     destroy_cmd.go      # nstack destroy
     detect_cmd.go       # nstack detect
+    discover_cmd.go     # nstack discover (pre-K8s network scan)
     init_cmd.go         # nstack init
     plan_cmd.go         # nstack plan (dry-run)
     status_cmd.go       # nstack status
@@ -231,6 +312,16 @@ nstack/
     helpers.go          # Shared CLI helpers
 
   pkg/
+    discover/           # Network discovery (pre-Kubernetes)
+      scanner.go        # Scan orchestrator, CIDR expansion, worker pool
+      types.go          # DiscoveredHost, DiscoveredGPU, DiscoveredNIC, ScanOptions
+      ssh.go            # SSH probe (hostname, virt, GPU, NIC, K8s detection)
+      bmc_probe.go      # IPMI/Redfish BMC probe (system info, PCIe inventory)
+      kube_probe.go     # K8s API /version probe (ports 6443, 16443)
+      classify.go       # Host classification, grouping, site recommendations
+      config.go         # YAML config generation from discovered hosts
+      config_test.go    # Tests for classification, grouping, config gen
+
     config/             # Config loading, profiles, version resolution
       types.go          # All config structs (Site, Profile, Federation, etc.)
       loader.go         # YAML loading from ~/.nstack/config.yaml

@@ -175,6 +175,133 @@ mkdir -p internal/assets/charts/my-component
 
 Create `internal/assets/charts/my-component/common.yaml` with default Helm values. Optionally add distribution overlays like `k3s.yaml`.
 
+## Adding a New Probe Type
+
+The `nstack discover` command uses parallel probe functions to gather information about each host. Adding a new probe type (e.g., InfiniBand fabric manager, cloud provider API, or storage controller) follows a consistent pattern.
+
+### Step-by-Step
+
+**1. Create the probe file:**
+
+```bash
+touch pkg/discover/myprobe.go
+```
+
+**2. Define the result struct and probe function:**
+
+```go
+// pkg/discover/myprobe.go
+package discover
+
+import (
+    "context"
+    "time"
+)
+
+// MyProbeResult holds information gathered from the custom probe.
+type MyProbeResult struct {
+    FabricID  string
+    Bandwidth string
+    // ... fields specific to what this probe discovers
+}
+
+// probeMyThing checks a host for the custom resource.
+// It follows the standard probe contract: returns (result, nil) on success,
+// or (nil, error) if the probe could not connect or the resource is absent.
+func probeMyThing(ctx context.Context, ip string, opts ScanOptions, timeout time.Duration) (*MyProbeResult, error) {
+    // 1. Quick port check with context-aware dial
+    conn, err := (&net.Dialer{Timeout: tcpDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(ip, "my-port"))
+    if err != nil {
+        return nil, err
+    }
+    conn.Close()
+
+    // 2. Perform the actual probe (API call, protocol handshake, etc.)
+    // Always use ctx for cancellation and timeout for deadlines.
+
+    // 3. Return structured result
+    return &MyProbeResult{
+        FabricID:  "...",
+        Bandwidth: "...",
+    }, nil
+}
+```
+
+**3. Wire it into `scanHost()` in `scanner.go`:**
+
+Add a new goroutine alongside the existing BMC, SSH, and K8s probes:
+
+```go
+// In scanHost(), add a channel and goroutine:
+myProbeCh := make(chan myProbeResult, 1)
+go func() {
+    r, err := probeMyThing(ctx, ip, opts, timeout)
+    myProbeCh <- myProbeResult{r, err}
+}()
+
+// Wait for the result alongside other probes:
+myResult := <-myProbeCh
+```
+
+**4. Merge results into `DiscoveredHost`:**
+
+Add any new fields to the `DiscoveredHost` struct in `types.go`, then merge in `scanHost()`:
+
+```go
+if myResult.err == nil && myResult.result != nil {
+    host.HasMyThing = true
+    host.FabricID = myResult.result.FabricID
+}
+```
+
+**5. Update classification if needed:**
+
+If the new probe affects how hosts should be classified (e.g., InfiniBand presence implies a different profile), update `classifyHost()` in `classify.go` and `selectProfile()` to account for the new signal.
+
+**6. Add tests:**
+
+Add test cases to `config_test.go` covering classification with the new probe data, and consider adding a dedicated `myprobe_test.go` for parsing and protocol-specific logic.
+
+### Key Constraints
+
+- Every probe must respect `ctx` cancellation. Use `DialContext` and `http.NewRequestWithContext`.
+- Probes run in parallel per host. Do not share mutable state between probes.
+- Return `(nil, error)` when a probe fails (host does not have the resource). Only `scanHost()` decides whether to skip the host entirely.
+- Cap iteration counts (like `maxPCIeDevices = 256`) to prevent runaway enumeration.
+
+## Network Discovery Security Model
+
+The `nstack discover` command scans arbitrary network ranges and connects to unknown hosts. The security model is designed to minimize exposure:
+
+**Credentials never written to config.** SSH keys, BMC passwords, and other credentials passed via CLI flags are used only during the scan. The generated site config contains no credentials -- only hostnames, IPs, profiles, and node inventories.
+
+**SSH key bytes zeroed after parsing.** In `buildAuthMethods()` (`ssh.go`), the raw key bytes read from disk are explicitly zeroed after `ssh.ParsePrivateKey()` extracts the signer, preventing the private key material from lingering on the heap.
+
+**Redfish paths constrained to `/redfish/` namespace.** When following PCIe device member links from a Redfish collection response, the scanner validates that each `@odata.id` path starts with `/redfish/` before making the request (`bmc_probe.go`). This prevents a malicious BMC from redirecting the scanner to arbitrary endpoints via crafted collection responses.
+
+**PCIe device iteration capped at 256.** The `maxPCIeDevices` constant prevents the scanner from making an unbounded number of HTTP requests if a BMC reports an unreasonably large PCIe device collection.
+
+**Context cancellation respected on all network operations.** Every TCP dial, UDP write, HTTP request, and SSH command uses the context passed from the CLI. This means `--timeout` and `ctrl-c` propagate cleanly to every in-flight connection without leaking goroutines.
+
+**Config files written with 0600 permissions.** Generated config files (`~/.nstack/config.yaml`) are written with owner-only read/write permissions.
+
+**CIDR scan limited to /20 (4096 hosts).** The `maxScanIPs` constant rejects scans of subnets larger than /20 to prevent accidental scans of large network ranges. Users who need to scan larger ranges should split into multiple /20-or-smaller runs.
+
+## The Discover Command vs. Pipeline Stages
+
+The `nstack discover` command is **not** a pipeline stage. It is a standalone pre-Kubernetes command that does not require a kubeconfig, does not use the stage interface, and does not write to the state ConfigMap. The distinction:
+
+| Aspect | `nstack discover` | Pipeline Stages (0-6) |
+|--------|-------------------|----------------------|
+| Requires kubeconfig | No | Yes (Stages 2+) |
+| Uses Stage interface | No | Yes |
+| State tracking | None | ConfigMap in `nstack-system` |
+| Package location | `pkg/discover/` | `pkg/stages/s*_*/` |
+| CLI registration | `discover_cmd.go` | Via `buildRegistry()` in `stages.go` |
+| Output | JSON/table + optional config file | Helm installs + K8s resources |
+
+Stage 0 (`s0_discovery/`) in the pipeline is a *different* concept -- it handles BMC/hardware inventory within an existing Kubernetes context (via Metal3/Ironic). The `discover` command operates before any cluster exists.
+
 ## Adding a New Profile
 
 Profiles are YAML files embedded in `internal/assets/profiles/`. They define environment-specific defaults for Kubernetes distribution, storage strategy, networking, and container image registries.

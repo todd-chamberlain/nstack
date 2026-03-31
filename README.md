@@ -28,6 +28,24 @@ nstack deploy --site lab
 nstack status --site lab
 ```
 
+## Network Discovery
+
+Scan a network to find hosts before deploying:
+
+```bash
+nstack discover --network 10.0.0.0/24 --ssh-user admin --ssh-key ~/.ssh/id_ed25519
+```
+
+NStack probes each host via IPMI/Redfish, SSH, and K8s API to classify it:
+
+| Classification | Access Found | Recommended Path |
+|---|---|---|
+| **bare-metal** | BMC only, no OS | Stage 0-6 (full provisioning) |
+| **needs-k8s** | SSH + OS, no K8s | Stage 2-6 (bootstrap K8s) |
+| **k8s-ready** | K8s API responding | Stage 4-6 (deploy GPU stack) |
+
+The command generates a site config automatically with `--write-config`.
+
 ## What It Deploys
 
 | Stage | Components |
