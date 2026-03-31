@@ -46,7 +46,16 @@ func probeSSH(ctx context.Context, ip string, opts ScanOptions) (*SSHProbeResult
 		timeout = 10 * time.Second
 	}
 
-	authMethods := buildAuthMethods(opts)
+	// Open SSH agent connection once and close when done.
+	var agentConn net.Conn
+	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
+		if conn, err := net.Dial("unix", sock); err == nil {
+			agentConn = conn
+			defer agentConn.Close()
+		}
+	}
+
+	authMethods := buildAuthMethods(opts, agentConn)
 	if len(authMethods) == 0 {
 		return nil, fmt.Errorf("no SSH authentication methods available")
 	}
@@ -152,7 +161,8 @@ func probeSSH(ctx context.Context, ip string, opts ScanOptions) (*SSHProbeResult
 }
 
 // buildAuthMethods constructs SSH authentication methods from ScanOptions.
-func buildAuthMethods(opts ScanOptions) []ssh.AuthMethod {
+// agentConn may be nil if no SSH agent is available; the caller owns its lifetime.
+func buildAuthMethods(opts ScanOptions, agentConn net.Conn) []ssh.AuthMethod {
 	var methods []ssh.AuthMethod
 
 	// Try SSH key first
@@ -161,15 +171,17 @@ func buildAuthMethods(opts ScanOptions) []ssh.AuthMethod {
 			if signer, err := ssh.ParsePrivateKey(key); err == nil {
 				methods = append(methods, ssh.PublicKeys(signer))
 			}
+			// Zero key bytes after parsing to avoid leaving secrets in memory.
+			for i := range key {
+				key[i] = 0
+			}
 		}
 	}
 
-	// Try SSH agent
-	if sock := os.Getenv("SSH_AUTH_SOCK"); sock != "" {
-		if conn, err := net.Dial("unix", sock); err == nil {
-			agentClient := agent.NewClient(conn)
-			methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
-		}
+	// Try SSH agent (connection managed by caller)
+	if agentConn != nil {
+		agentClient := agent.NewClient(agentConn)
+		methods = append(methods, ssh.PublicKeysCallback(agentClient.Signers))
 	}
 
 	// Try password
@@ -220,11 +232,12 @@ func runSSHCommand(client *ssh.Client, command string) string {
 	if err != nil {
 		return ""
 	}
-	defer session.Close()
 
-	// Use a timer for per-command timeout
+	// The goroutine owns session.Close() on the happy path.
+	// On timeout we also close to unblock CombinedOutput.
 	done := make(chan []byte, 1)
 	go func() {
+		defer session.Close()
 		out, _ := session.CombinedOutput(command)
 		done <- out
 	}()
@@ -233,6 +246,7 @@ func runSSHCommand(client *ssh.Client, command string) string {
 	case out := <-done:
 		return string(out)
 	case <-time.After(cmdTimeout):
+		session.Close() // force the goroutine to unblock
 		return ""
 	}
 }

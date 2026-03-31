@@ -1,6 +1,7 @@
 package discover
 
 import (
+	"bytes"
 	"context"
 	"net"
 	"sort"
@@ -72,9 +73,14 @@ func Scan(ctx context.Context, opts ScanOptions) ([]DiscoveredHost, error) {
 
 	wg.Wait()
 
-	// Sort by IP for stable output
+	// Sort by IP numerically for stable output
 	sort.Slice(hosts, func(i, j int) bool {
-		return hosts[i].IP < hosts[j].IP
+		a := net.ParseIP(hosts[i].IP)
+		b := net.ParseIP(hosts[j].IP)
+		if a == nil || b == nil {
+			return hosts[i].IP < hosts[j].IP
+		}
+		return bytes.Compare(a.To16(), b.To16()) < 0
 	})
 
 	return hosts, nil

@@ -61,7 +61,7 @@ func probeK8sAPI(ctx context.Context, ip string, timeout time.Duration) (*K8sPro
 // tryK8sPort attempts an HTTPS GET to /version on the given port.
 func tryK8sPort(ctx context.Context, httpClient *http.Client, ip, port string) (*K8sProbeResult, error) {
 	// Quick TCP check first
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), tcpDialTimeout)
+	conn, err := (&net.Dialer{Timeout: tcpDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(ip, port))
 	if err != nil {
 		return nil, err
 	}

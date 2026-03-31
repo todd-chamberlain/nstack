@@ -24,10 +24,11 @@ type BMCProbeResult struct {
 
 // BMC probe constants.
 const (
-	maxRedfishBody = 1 << 20      // Maximum Redfish response body size (1 MB).
-	redfishPort    = "443"        // Standard Redfish HTTPS port.
-	ipmiPort       = "623"        // Standard IPMI UDP port.
-	tcpDialTimeout = 2 * time.Second // Timeout for quick TCP port checks.
+	maxRedfishBody  = 1 << 20        // Maximum Redfish response body size (1 MB).
+	redfishPort     = "443"          // Standard Redfish HTTPS port.
+	ipmiPort        = "623"          // Standard IPMI UDP port.
+	tcpDialTimeout  = 2 * time.Second // Timeout for quick TCP port checks.
+	maxPCIeDevices  = 256            // Maximum PCIe devices to enumerate via Redfish.
 )
 
 // probeBMC tries Redfish first, then falls back to IPMI.
@@ -50,7 +51,7 @@ func probeBMC(ctx context.Context, ip string, opts ScanOptions, timeout time.Dur
 // probeRedfishDiscover checks for a Redfish BMC and optionally gathers system info.
 func probeRedfishDiscover(ctx context.Context, ip string, opts ScanOptions, timeout time.Duration) (*BMCProbeResult, error) {
 	// Quick TCP check on Redfish port
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, redfishPort), tcpDialTimeout)
+	conn, err := (&net.Dialer{Timeout: tcpDialTimeout}).DialContext(ctx, "tcp", net.JoinHostPort(ip, redfishPort))
 	if err != nil {
 		return nil, fmt.Errorf("port %s not open on %s", redfishPort, ip)
 	}
@@ -161,8 +162,11 @@ func fetchRedfishSystemInfo(ctx context.Context, httpClient *http.Client, baseUR
 		pciResp.Body.Close()
 		var collection redfishCollection
 		if json.Unmarshal(body, &collection) == nil {
-			for _, member := range collection.Members {
-				if !strings.HasPrefix(member.ID, "/") || strings.Contains(member.ID, "://") {
+			for i, member := range collection.Members {
+				if i >= maxPCIeDevices {
+					break
+				}
+				if !strings.HasPrefix(member.ID, "/redfish/") {
 					continue
 				}
 				devReq, devErr := http.NewRequestWithContext(ctx, "GET", baseURL+member.ID, nil)

@@ -134,7 +134,7 @@ func runDiscover(cmd *cobra.Command, args []string) error {
 			return fmt.Errorf("creating config directory: %w", err)
 		}
 
-		if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o644); err != nil {
+		if err := os.WriteFile(cfgPath, []byte(cfgContent), 0o600); err != nil {
 			return fmt.Errorf("writing config: %w", err)
 		}
 
