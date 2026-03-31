@@ -109,7 +109,7 @@ func primaryGPUModel(h DiscoveredHost) string {
 
 // generateSiteName creates a descriptive site name from host characteristics.
 func generateSiteName(entryPoint, gpuModel string, isPhysical bool, count int) string {
-	parts := []string{}
+	var parts []string
 
 	// Prefix based on type
 	if isPhysical {
@@ -162,15 +162,12 @@ func selectProfile(entryPoint string, isPhysical bool, count int) string {
 	if count == 1 {
 		return "k3s-single"
 	}
-	if isPhysical {
-		return "kubeadm-ha"
-	}
 	return "kubeadm-ha"
 }
 
 // buildSummary creates a human-readable summary for a site recommendation.
 func buildSummary(hosts []DiscoveredHost, gpuModel, entryPoint string) string {
-	parts := []string{}
+	var parts []string
 
 	hostType := "VM"
 	if len(hosts) > 0 && hosts[0].IsPhysical {

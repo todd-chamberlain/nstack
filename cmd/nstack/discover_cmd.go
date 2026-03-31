@@ -207,7 +207,7 @@ func printDiscoverTable(hosts []discover.DiscoveredHost) {
 }
 
 func buildAccessStr(h discover.DiscoveredHost) string {
-	parts := []string{}
+	var parts []string
 	if h.HasBMC {
 		parts = append(parts, "BMC")
 	}

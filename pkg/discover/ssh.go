@@ -29,8 +29,15 @@ type SSHProbeResult struct {
 	K8sVersion string
 }
 
-// cmdTimeout is the per-command timeout for SSH assessment commands.
-const cmdTimeout = 5 * time.Second
+// SSH probe constants.
+const (
+	cmdTimeout     = 5 * time.Second // Per-command timeout for SSH assessment commands.
+	sshPort        = "22"
+	defaultSSHUser = "root"
+)
+
+// versionRe matches Kubernetes-style version strings (v1.x.y...).
+var versionRe = regexp.MustCompile(`v\d+\.\d+\.\d+[^\s]*`)
 
 // probeSSH connects to a host via SSH and runs assessment commands.
 func probeSSH(ctx context.Context, ip string, opts ScanOptions) (*SSHProbeResult, error) {
@@ -46,7 +53,7 @@ func probeSSH(ctx context.Context, ip string, opts ScanOptions) (*SSHProbeResult
 
 	user := opts.SSHUser
 	if user == "" {
-		user = "root"
+		user = defaultSSHUser
 	}
 
 	config := &ssh.ClientConfig{
@@ -56,7 +63,7 @@ func probeSSH(ctx context.Context, ip string, opts ScanOptions) (*SSHProbeResult
 		Timeout:         timeout,
 	}
 
-	addr := net.JoinHostPort(ip, "22")
+	addr := net.JoinHostPort(ip, sshPort)
 	client, err := sshDialContext(ctx, "tcp", addr, config, timeout)
 	if err != nil {
 		return nil, fmt.Errorf("SSH connect to %s: %w", ip, err)
@@ -290,6 +297,9 @@ func extractVRAM(model string) string {
 	return ""
 }
 
+// virtualNICPrefixes lists interface name prefixes to skip during NIC enumeration.
+var virtualNICPrefixes = []string{"veth", "br-", "docker", "cni", "flannel", "calico"}
+
 // parseNICs parses `ip -br link show` output into NIC info.
 func parseNICs(output string) []DiscoveredNIC {
 	var nics []DiscoveredNIC
@@ -299,14 +309,7 @@ func parseNICs(output string) []DiscoveredNIC {
 			continue
 		}
 		name := fields[0]
-		// Skip virtual/bridge interfaces
-		if strings.HasPrefix(name, "veth") ||
-			strings.HasPrefix(name, "br-") ||
-			strings.HasPrefix(name, "docker") ||
-			strings.HasPrefix(name, "cni") ||
-			strings.HasPrefix(name, "flannel") ||
-			strings.HasPrefix(name, "calico") ||
-			name == "lo" {
+		if name == "lo" || isVirtualNIC(name) {
 			continue
 		}
 		nicType := "ethernet"
@@ -321,34 +324,29 @@ func parseNICs(output string) []DiscoveredNIC {
 	return nics
 }
 
+// isVirtualNIC returns true if the interface name matches a known virtual NIC prefix.
+func isVirtualNIC(name string) bool {
+	for _, prefix := range virtualNICPrefixes {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 // parseK8sInfo extracts K8s version and distro from kubectl output.
 func parseK8sInfo(clientVersion, nodesOutput string) (version, distro string) {
 	version = extractVersion(clientVersion)
+	distro = detectK8sDistro(version)
 
-	// Detect distribution from version string
-	switch {
-	case strings.Contains(version, "+k3s"):
-		distro = "k3s"
-	case strings.Contains(version, "-eks"):
-		distro = "eks"
-	case strings.Contains(version, "-gke"):
-		distro = "gke"
-	case strings.Contains(version, "-aks"):
-		distro = "aks"
-	default:
-		distro = "kubeadm"
-	}
-
-	// Also try to get version from nodes output (server version)
+	// Also try to get version from nodes output (server version is more accurate)
 	for _, line := range strings.Split(nodesOutput, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) >= 5 {
 			for _, f := range fields {
 				if strings.HasPrefix(f, "v1.") {
 					version = f
-					if strings.Contains(f, "+k3s") {
-						distro = "k3s"
-					}
+					distro = detectK8sDistro(f)
 					break
 				}
 			}
@@ -360,9 +358,7 @@ func parseK8sInfo(clientVersion, nodesOutput string) (version, distro string) {
 
 // extractVersion finds a version string (v1.x.y...) in text.
 func extractVersion(text string) string {
-	re := regexp.MustCompile(`v\d+\.\d+\.\d+[^\s]*`)
-	match := re.FindString(text)
-	if match != "" {
+	if match := versionRe.FindString(text); match != "" {
 		return match
 	}
 	return strings.TrimSpace(text)

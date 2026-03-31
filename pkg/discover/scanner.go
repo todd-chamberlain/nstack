@@ -186,11 +186,6 @@ func scanHost(ctx context.Context, ip string, opts ScanOptions, timeout time.Dur
 		}
 	}
 
-	// If no BMC detected, assume physical unless SSH told us otherwise
-	if !host.HasBMC && !host.HasSSH {
-		// Only BMC or SSH can tell us the type; without either, leave defaults
-	}
-
 	classifyHost(host)
 
 	return host

@@ -26,8 +26,12 @@ type k8sVersionResponse struct {
 	Platform     string `json:"platform"`
 }
 
-// maxK8sBody is the maximum response body size from a K8s API probe (64 KB).
-const maxK8sBody = 64 << 10
+// K8s probe constants.
+const (
+	maxK8sBody     = 64 << 10 // Maximum K8s API response body size (64 KB).
+	k8sStdPort     = "6443"   // Standard Kubernetes API port.
+	k8sMicroK8sPort = "16443"  // MicroK8s API port.
+)
 
 // probeK8sAPI tries to connect to the K8s API server version endpoint.
 // It tries port 6443 first (standard), then 16443 (microk8s).
@@ -40,14 +44,13 @@ func probeK8sAPI(ctx context.Context, ip string, timeout time.Duration) (*K8sPro
 		},
 	}
 
-	// Try standard K8s port first
-	result, err := tryK8sPort(ctx, httpClient, ip, "6443")
+	// Try standard K8s port first, then microk8s
+	result, err := tryK8sPort(ctx, httpClient, ip, k8sStdPort)
 	if err == nil {
 		return result, nil
 	}
 
-	// Try microk8s port
-	result, err = tryK8sPort(ctx, httpClient, ip, "16443")
+	result, err = tryK8sPort(ctx, httpClient, ip, k8sMicroK8sPort)
 	if err == nil {
 		return result, nil
 	}
@@ -58,7 +61,7 @@ func probeK8sAPI(ctx context.Context, ip string, timeout time.Duration) (*K8sPro
 // tryK8sPort attempts an HTTPS GET to /version on the given port.
 func tryK8sPort(ctx context.Context, httpClient *http.Client, ip, port string) (*K8sProbeResult, error) {
 	// Quick TCP check first
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), 2*time.Second)
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, port), tcpDialTimeout)
 	if err != nil {
 		return nil, err
 	}

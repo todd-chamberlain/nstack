@@ -22,8 +22,13 @@ type BMCProbeResult struct {
 	NICs     []DiscoveredNIC
 }
 
-// maxRedfishBody is the maximum response body size from a Redfish endpoint (1 MB).
-const maxRedfishBody = 1 << 20
+// BMC probe constants.
+const (
+	maxRedfishBody = 1 << 20      // Maximum Redfish response body size (1 MB).
+	redfishPort    = "443"        // Standard Redfish HTTPS port.
+	ipmiPort       = "623"        // Standard IPMI UDP port.
+	tcpDialTimeout = 2 * time.Second // Timeout for quick TCP port checks.
+)
 
 // probeBMC tries Redfish first, then falls back to IPMI.
 func probeBMC(ctx context.Context, ip string, opts ScanOptions, timeout time.Duration) (*BMCProbeResult, error) {
@@ -44,10 +49,10 @@ func probeBMC(ctx context.Context, ip string, opts ScanOptions, timeout time.Dur
 
 // probeRedfishDiscover checks for a Redfish BMC and optionally gathers system info.
 func probeRedfishDiscover(ctx context.Context, ip string, opts ScanOptions, timeout time.Duration) (*BMCProbeResult, error) {
-	// Quick TCP check on port 443
-	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, "443"), 2*time.Second)
+	// Quick TCP check on Redfish port
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(ip, redfishPort), tcpDialTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("port 443 not open on %s", ip)
+		return nil, fmt.Errorf("port %s not open on %s", redfishPort, ip)
 	}
 	conn.Close()
 
@@ -218,9 +223,9 @@ func classifyBMCPCIDevice(result *BMCProbeResult, device redfishPCIeDevice) {
 
 // probeIPMIDiscover attempts IPMI detection via ASF Presence Ping on UDP port 623.
 func probeIPMIDiscover(ctx context.Context, ip string, timeout time.Duration) (*BMCProbeResult, error) {
-	conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, "623"), 2*time.Second)
+	conn, err := net.DialTimeout("udp", net.JoinHostPort(ip, ipmiPort), tcpDialTimeout)
 	if err != nil {
-		return nil, fmt.Errorf("IPMI port 623 not reachable on %s", ip)
+		return nil, fmt.Errorf("IPMI port %s not reachable on %s", ipmiPort, ip)
 	}
 	defer conn.Close()
 
