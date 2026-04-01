@@ -128,7 +128,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 		"ofedDriver": map[string]interface{}{
 			"image":      "doca-driver",
 			"repository": "nvcr.io/nvidia/mellanox",
-			"version":    "25.04-0.6.6.0",
+			"version":    "25.04-0.6.1.0",
 			"upgradePolicy": map[string]interface{}{
 				"autoUpgrade":       true,
 				"maxParallelUpgrades": 1,
@@ -145,7 +145,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 		"rdmaSharedDevicePlugin": map[string]interface{}{
 			"image":      "k8s-rdma-shared-dev-plugin",
 			"repository": "nvcr.io/nvidia/mellanox",
-			"version":    "network-operator-25.7.0",
+			"version":    "network-operator-v25.7.0",
 			"config":     `{"configList":[{"resourceName":"rdma_shared_device_a","rdmaHcaMax":63,"selectors":{"vendors":["15b3"]}}]}`,
 		},
 
@@ -153,7 +153,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 		"nvIpam": map[string]interface{}{
 			"image":         "nvidia-k8s-ipam",
 			"repository":    "nvcr.io/nvidia/mellanox",
-			"version":       "network-operator-25.7.0",
+			"version":       "network-operator-v25.7.0",
 			"enableWebhook": false,
 		},
 
@@ -167,7 +167,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 			"cniPlugins": map[string]interface{}{
 				"image":      "plugins",
 				"repository": "nvcr.io/nvidia/mellanox",
-				"version":    "network-operator-25.7.0",
+				"version":    "network-operator-v25.7.0",
 			},
 		},
 	}
@@ -177,7 +177,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 		spec["ibKubernetes"] = map[string]interface{}{
 			"image":                 "ib-kubernetes",
 			"repository":           "nvcr.io/nvidia/mellanox",
-			"version":              "network-operator-25.7.0",
+			"version":              "network-operator-v25.7.0",
 			"periodicUpdateSeconds": 5,
 			"pKeyGUIDPoolRangeStart": "02:00:00:00:00:00:00:00",
 			"pKeyGUIDPoolRangeEnd":   "02:FF:FF:FF:FF:FF:FF:FF",
@@ -187,7 +187,7 @@ func buildNicClusterPolicySpec(fabric string, site *config.Site) map[string]inte
 		sn["ipoib"] = map[string]interface{}{
 			"image":      "ipoib-cni",
 			"repository": "nvcr.io/nvidia/mellanox",
-			"version":    "network-operator-25.7.0",
+			"version":    "network-operator-v25.7.0",
 		}
 	}
 
