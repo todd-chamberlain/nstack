@@ -12,6 +12,7 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	"helm.sh/helm/v3/pkg/cli"
 	"helm.sh/helm/v3/pkg/getter"
+	"helm.sh/helm/v3/pkg/registry"
 	"helm.sh/helm/v3/pkg/release"
 	"helm.sh/helm/v3/pkg/repo"
 )
@@ -20,6 +21,7 @@ import (
 type Client struct {
 	settings   *cli.EnvSettings
 	kubeconfig string
+	registry   *registry.Client
 }
 
 // installOpts holds optional configuration for UpgradeOrInstall.
@@ -67,9 +69,14 @@ func NewClient(kubeconfig string) *Client {
 	if kubeconfig != "" {
 		settings.KubeConfig = kubeconfig
 	}
+
+	// Create a registry client for OCI chart references (oci://).
+	rc, _ := registry.NewClient(registry.ClientOptEnableCache(true))
+
 	return &Client{
 		settings:   settings,
 		kubeconfig: kubeconfig,
+		registry:   rc,
 	}
 }
 
@@ -85,6 +92,9 @@ func (c *Client) actionConfig(namespace string) (*action.Configuration, error) {
 		settings.SetNamespace(namespace)
 	}
 	cfg := new(action.Configuration)
+	if c.registry != nil {
+		cfg.RegistryClient = c.registry
+	}
 	err := cfg.Init(settings.RESTClientGetter(), namespace, os.Getenv("HELM_DRIVER"), log.Printf)
 	if err != nil {
 		return nil, fmt.Errorf("initializing Helm configuration: %w", err)

@@ -2,7 +2,6 @@ package s4_gpu
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
@@ -11,10 +10,10 @@ import (
 )
 
 const (
-	kaiSchedulerChart     = "nvidia/kai-scheduler"
+	kaiSchedulerChart     = "oci://ghcr.io/kai-scheduler/kai-scheduler/kai-scheduler"
 	kaiSchedulerNamespace = "kai-scheduler"
 	kaiSchedulerRelease   = "kai-scheduler"
-	kaiSchedulerVersion   = "0.3.2"
+	kaiSchedulerVersion   = "v0.14.0"
 )
 
 // installKAIScheduler deploys the NVIDIA KAI Scheduler for GPU-aware
@@ -22,9 +21,7 @@ const (
 func installKAIScheduler(ctx context.Context, hc *helm.Client, site *config.Site, overrides map[string]interface{}, printer *output.Printer) error {
 	printer.Debugf("installing %s", kaiSchedulerRelease)
 
-	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
-		return fmt.Errorf("adding nvidia repo: %w", err)
-	}
+	// KAI Scheduler is an OCI chart from GHCR — no repo add needed.
 
 	values := map[string]interface{}{
 		"scheduler": map[string]interface{}{

@@ -37,13 +37,15 @@ func installGPUOperator(ctx context.Context, hc *helm.Client, site *config.Site,
 		return fmt.Errorf("loading gpu-operator values: %w", err)
 	}
 
-	// Override the default runtime class if the profile specifies one.
+	// Override the runtime class if the profile specifies one.
+	// The chart key changed from operator.defaultRuntime (removed in v25.3.0)
+	// to operator.runtimeClass.
 	if profile != nil && profile.Kubernetes.RuntimeClass != "" {
 		operatorVals, ok := mergedValues["operator"].(map[string]interface{})
 		if !ok {
 			operatorVals = make(map[string]interface{})
 		}
-		operatorVals["defaultRuntime"] = profile.Kubernetes.RuntimeClass
+		operatorVals["runtimeClass"] = profile.Kubernetes.RuntimeClass
 		mergedValues["operator"] = operatorVals
 	}
 

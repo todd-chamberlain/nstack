@@ -1,43 +1,7 @@
-# NVIDIA Network Operator common values
-deployCR: true
-operator:
-  repository: nvcr.io/nvidia/cloud-native
-  image: network-operator
+# NVIDIA Network Operator chart values (v24.10.0+)
+# The chart deploys only the operator itself.
+# NicClusterPolicy CR is created separately by NStack.
 nfd:
   enabled: false  # NFD already deployed by GPU Operator
 sriovNetworkOperator:
-  enabled: false  # Managed separately if needed
-nvIpam:
-  deploy: true
-secondaryNetwork:
-  deploy: true
-  multus:
-    deploy: true
-    image:
-      repository: ghcr.io/k8snetworkplumbingwg/multus-cni
-      tag: v4.1.0-thick
-  cniPlugins:
-    deploy: true
-  ipoib:
-    deploy: false
-ofedDriver:
-  deploy: true
-  repository: nvcr.io/nvidia/mellanox
-  image: mofed
-  version: "25.04-0.6.6.0"
-  upgradePolicy:
-    autoUpgrade: true
-    drain:
-      enable: true
-      force: true
-      podSelector: ""
-      timeoutSeconds: 300
-rdmaSharedDevicePlugin:
-  deploy: true
-  resources:
-    - name: rdma_shared_device_a
-      rdmaHcaMax: 63
-      vendors: ["15b3"]  # Mellanox vendor ID
-nvPeerDriver:
-  deploy: true  # nvidia_peermem for GPUDirect RDMA
-  gpuDriverSourcePath: /run/nvidia/driver
+  enabled: false

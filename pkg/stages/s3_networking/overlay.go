@@ -130,7 +130,7 @@ func configureTailscale(ctx context.Context, hc *helm.Client, site *config.Site,
 	}
 
 	// Create subnet router Connector CRD if the site has an overlay configured.
-	if kc != nil {
+	if kc != nil && kc.DynamicClient() != nil {
 		if err := configureTailscaleSubnetRouter(ctx, kc, site, printer); err != nil {
 			printer.Debugf("tailscale subnet router (non-fatal): %v", err)
 		}

@@ -175,6 +175,59 @@ func TestStorageClassDetection(t *testing.T) {
 	}
 }
 
+func TestDetectNebius(t *testing.T) {
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "nebius-gpu-node-0",
+			Labels: map[string]string{
+				"nebius.com/node-group-id": "ng-abc123",
+				"nebius.com/platform":      "gpu-h100-sxm",
+			},
+		},
+	}
+	fakeClient := fake.NewSimpleClientset(node)
+	fakeClient.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{
+		GitVersion: "v1.31.2",
+	}
+
+	result, err := detectKubernetes(context.Background(), fakeClient)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.info.Distribution != "nebius" {
+		t.Errorf("expected distribution=nebius for node with nebius.com/ labels, got %q", result.info.Distribution)
+	}
+	if result.info.ContainerdSocket != "/run/containerd/containerd.sock" {
+		t.Errorf("expected default containerd socket for nebius, got %q", result.info.ContainerdSocket)
+	}
+}
+
+func TestDetectNebiusNotFalsePositive(t *testing.T) {
+	// Standard node without nebius labels should not detect as nebius.
+	node := &corev1.Node{
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "generic-node",
+			Labels: map[string]string{
+				"kubernetes.io/os": "linux",
+			},
+		},
+	}
+	fakeClient := fake.NewSimpleClientset(node)
+	fakeClient.Discovery().(*fakediscovery.FakeDiscovery).FakedServerVersion = &version.Info{
+		GitVersion: "v1.31.2",
+	}
+
+	result, err := detectKubernetes(context.Background(), fakeClient)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if result.info.Distribution == "nebius" {
+		t.Errorf("expected non-nebius distribution for node without nebius labels, got %q", result.info.Distribution)
+	}
+}
+
 func TestParseMinorVersion(t *testing.T) {
 	tests := []struct {
 		input string

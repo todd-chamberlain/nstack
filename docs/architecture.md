@@ -372,7 +372,7 @@ nstack/
       nodesets/          # common.yaml, k3s.yaml
       monitoring/        # common.yaml, k3s.yaml
       mlflow/           # common.yaml
-      network-operator/ # common.yaml, infiniband.yaml, roce.yaml
+      network-operator/ # common.yaml (chart values; NicClusterPolicy CR built in Go)
       kai-scheduler/    # common.yaml
       doca/             # common.yaml
     profiles/           # Environment presets

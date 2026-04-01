@@ -45,7 +45,7 @@ func makeNetworkOperatorDeployment(available int32) *appsv1.Deployment {
 	}
 }
 
-// makeDOCADeployment builds a minimal Deployment for the DOCA platform operator.
+// makeDOCADeployment builds a minimal Deployment for the DPF operator.
 func makeDOCADeployment(available int32) *appsv1.Deployment {
 	return &appsv1.Deployment{
 		ObjectMeta: metav1.ObjectMeta{
@@ -55,14 +55,14 @@ func makeDOCADeployment(available int32) *appsv1.Deployment {
 		Spec: appsv1.DeploymentSpec{
 			Replicas: int32Ptr(1),
 			Selector: &metav1.LabelSelector{
-				MatchLabels: map[string]string{"app": "doca-platform"},
+				MatchLabels: map[string]string{"app": "dpf-operator"},
 			},
 			Template: corev1.PodTemplateSpec{
-				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "doca-platform"}},
+				ObjectMeta: metav1.ObjectMeta{Labels: map[string]string{"app": "dpf-operator"}},
 				Spec: corev1.PodSpec{
 					Containers: []corev1.Container{{
-						Name:  "doca-platform",
-						Image: "nvcr.io/nvidia/doca:2.9.1",
+						Name:  "dpf-operator",
+						Image: "nvcr.io/nvidia/doca/dpf-system:v25.10.1",
 					}},
 				},
 			},
@@ -120,11 +120,11 @@ func TestNetworkingStage_Detect_Found(t *testing.T) {
 	}
 
 	doca := result.Operators[1]
-	if doca.Name != "doca-platform" {
-		t.Errorf("expected second operator name=doca-platform, got %s", doca.Name)
+	if doca.Name != "dpf-operator" {
+		t.Errorf("expected second operator name=dpf-operator, got %s", doca.Name)
 	}
 	if doca.Version == "" {
-		t.Error("doca-platform version should not be empty")
+		t.Error("dpf-operator version should not be empty")
 	}
 }
 
@@ -255,12 +255,12 @@ func TestNetworkingStage_Plan_WithDPU(t *testing.T) {
 	}
 
 	docaComp := plan.Components[2]
-	if docaComp.Name != "doca-platform" {
-		t.Errorf("expected third component name=doca-platform, got %s", docaComp.Name)
+	if docaComp.Name != "dpf-operator" {
+		t.Errorf("expected third component name=dpf-operator, got %s", docaComp.Name)
 	}
 	// DOCA is an install candidate; Apply() checks for DPU nodes.
 	if docaComp.Action != "install" {
-		t.Errorf("doca-platform: expected action=install, got %s", docaComp.Action)
+		t.Errorf("dpf-operator: expected action=install, got %s", docaComp.Action)
 	}
 }
 
@@ -321,8 +321,8 @@ func TestNetworkingStage_Status_NotInstalled(t *testing.T) {
 	}
 	// DOCA should not appear in components when its namespace doesn't exist.
 	for _, c := range status.Components {
-		if c.Name == "doca-platform" {
-			t.Error("doca-platform should not be in components when namespace doesn't exist")
+		if c.Name == "dpf-operator" {
+			t.Error("dpf-operator should not be in components when namespace doesn't exist")
 		}
 	}
 }

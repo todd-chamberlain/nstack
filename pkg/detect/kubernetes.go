@@ -5,6 +5,7 @@ import (
 	"strconv"
 	"strings"
 
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -21,14 +22,21 @@ func detectKubernetes(ctx context.Context, clientset kubernetes.Interface) (*kub
 	cgroupVer := 2 // modern default
 	socket := "/run/containerd/containerd.sock"
 
-	if distro == "k3s" {
-		socket = "/run/k3s/containerd/containerd.sock"
-	}
-
-	// Detect cgroup version from node labels.
+	// Detect cgroup version and refine distribution from node labels.
 	nodes, err := clientset.CoreV1().Nodes().List(ctx, metav1.ListOptions{})
 	if err == nil && len(nodes.Items) > 0 {
 		cgroupVer = detectCgroupVersion(nodes.Items[0].Labels, sv.GitVersion)
+		// Nebius mk8s uses standard K8s versions without a distinctive suffix.
+		// Detect by checking for nebius.com/ prefixed node labels.
+		if distro == "kubeadm" || distro == "unknown" {
+			if hasNebiusLabels(nodes.Items) {
+				distro = "nebius"
+			}
+		}
+	}
+
+	if distro == "k3s" {
+		socket = "/run/k3s/containerd/containerd.sock"
 	}
 
 	// Discover storage classes.
@@ -61,6 +69,19 @@ func detectKubernetes(ctx context.Context, clientset kubernetes.Interface) (*kub
 		},
 		storage: storageClasses,
 	}, nil
+}
+
+// hasNebiusLabels checks whether any node has labels prefixed with "nebius.com/",
+// which are set by Nebius managed Kubernetes (mk8s) node groups.
+func hasNebiusLabels(nodes []corev1.Node) bool {
+	for _, node := range nodes {
+		for key := range node.Labels {
+			if strings.HasPrefix(key, "nebius.com/") {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // detectDistribution infers the Kubernetes distribution from the GitVersion string.

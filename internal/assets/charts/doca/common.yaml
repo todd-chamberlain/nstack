@@ -1,10 +1,9 @@
-# DOCA Platform Framework values
-# Requires: cert-manager, NFD, maintenance-operator
-dpfOperator:
+# NVIDIA DPF (DOCA Platform Framework) Operator values
+# Chart: dpf-repository/dpf-operator from https://helm.ngc.nvidia.com/nvidia/doca
+# Prerequisites: cert-manager, NFD
+controllerManager:
   image:
-    repository: nvcr.io/nvidia/doca
-    tag: "2.9.1"
-  imagePullPolicy: IfNotPresent
-provisioning:
-  bfb:
-    enabled: true
+    repository: nvcr.io/nvidia/doca/dpf-system
+    tag: "v25.10.1"
+  replicas: 1
+enableNodeFeatureRules: true

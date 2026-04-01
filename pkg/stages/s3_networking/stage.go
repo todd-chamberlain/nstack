@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 
 	"github.com/todd-chamberlain/nstack/pkg/config"
 	"github.com/todd-chamberlain/nstack/pkg/engine"
@@ -31,7 +32,7 @@ func (s *NetworkingStage) Detect(ctx context.Context, kc *kube.Client) (*engine.
 	return &engine.DetectResult{
 		Operators: []engine.DetectedOperator{
 			engine.DetectDeployment(ctx, cs, networkOperatorNamespace, networkOperatorRelease, "network-operator"),
-			engine.DetectDeployment(ctx, cs, docaNamespace, docaRelease, "doca-platform"),
+			engine.DetectDeployment(ctx, cs, docaNamespace, docaRelease, "dpf-operator"),
 		},
 	}, nil
 }
@@ -80,12 +81,12 @@ func (s *NetworkingStage) Plan(ctx context.Context, kc *kube.Client, profile *co
 			engine.PlanDeploymentComponent(ctx, cs, "network-operator", networkOperatorChart, networkOperatorVersion, networkOperatorNamespace, networkOperatorRelease))
 	}
 
-	// Plan DOCA: skip unless DPU nodes are present.
+	// Plan DPF: skip unless DPU nodes are present.
 	// Note: we cannot check site config here (Plan only receives profile),
-	// so we check if DOCA is already deployed. Apply() decides whether to
-	// install DOCA based on the full site config.
+	// so we check if DPF is already deployed. Apply() decides whether to
+	// install DPF based on the full site config.
 	plan.Components = append(plan.Components,
-		engine.PlanDeploymentComponent(ctx, cs, "doca-platform", docaChart, docaVersion, docaNamespace, docaRelease))
+		engine.PlanDeploymentComponent(ctx, cs, "dpf-operator", docaChart, docaVersion, docaNamespace, docaRelease))
 
 	plan.Action = engine.DeterminePlanAction(plan.Components, plan.Patches)
 
@@ -119,9 +120,9 @@ func (s *NetworkingStage) Apply(ctx context.Context, kc *kube.Client, hc *helm.C
 					continue
 				}
 				printer.ComponentStart(idx, total, comp.Name, comp.Version, "installing")
-				err = installNetworkOperator(ctx, hc, site, profile, printer)
+				err = installNetworkOperator(ctx, hc, kc, site, profile, printer)
 
-			case "doca-platform":
+			case "dpf-operator":
 				if !hasDPUs(site) {
 					printer.ComponentSkipped(idx, total, comp.Name, "", "no DPUs detected")
 					continue
@@ -158,13 +159,13 @@ func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 	status.Version = networkOpStatus.Version
 	status.Components = append(status.Components, networkOpStatus)
 
-	// Only check DOCA if it appears to have been deployed (namespace exists).
-	// On clusters without DPUs, DOCA is never installed, so we treat it as
+	// Only check DPF if it appears to have been deployed (namespace exists).
+	// On clusters without DPUs, DPF is never installed, so we treat it as
 	// not-applicable rather than not-installed.
 	_, nsErr := cs.CoreV1().Namespaces().Get(ctx, docaNamespace, metav1.GetOptions{})
 	if nsErr == nil {
 		status.Components = append(status.Components,
-			engine.CheckDeploymentStatus(ctx, cs, docaNamespace, docaRelease, "doca-platform"))
+			engine.CheckDeploymentStatus(ctx, cs, docaNamespace, docaRelease, "dpf-operator"))
 	}
 
 	status.Status = engine.DetermineOverallStatus(status.Components)
@@ -172,16 +173,30 @@ func (s *NetworkingStage) Status(ctx context.Context, kc *kube.Client) (*engine.
 	return status, nil
 }
 
-// Destroy removes the DOCA Platform, Network Operator, and overlay from the cluster.
-// DOCA is removed first since it may depend on Network Operator CRDs.
-// Overlay is removed last since it is independent infrastructure.
+// Destroy removes the NicClusterPolicy CR, DPF Operator, Network Operator,
+// and overlay from the cluster. The CR must be deleted before the operator
+// so the operator can clean up the resources it manages.
 func (s *NetworkingStage) Destroy(ctx context.Context, kc *kube.Client, hc *helm.Client, printer *output.Printer) error {
-	total := 3
+	// Delete the NicClusterPolicy CR before removing the operator.
+	if kc != nil && kc.DynamicClient() != nil {
+		gvr := schema.GroupVersionResource{
+			Group:    "mellanox.com",
+			Version:  "v1alpha1",
+			Resource: "nicclusterpolicies",
+		}
+		err := kc.DynamicClient().Resource(gvr).Delete(ctx, nicClusterPolicyName, metav1.DeleteOptions{})
+		if err != nil {
+			printer.Debugf("deleting NicClusterPolicy (non-fatal): %v", err)
+		} else {
+			printer.Debugf("deleted NicClusterPolicy %s", nicClusterPolicyName)
+		}
+	}
 
+	total := 3
 	releases := []struct {
 		name, release, namespace string
 	}{
-		{"doca-platform", docaRelease, docaNamespace},
+		{"dpf-operator", docaRelease, docaNamespace},
 		{"network-operator", networkOperatorRelease, networkOperatorNamespace},
 		{"overlay", "tailscale-operator", "tailscale-system"},
 	}

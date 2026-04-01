@@ -11,10 +11,12 @@ import (
 )
 
 const (
-	docaChart     = "nvidia/doca-platform"
-	docaNamespace = "doca-platform"
-	docaRelease   = "doca-platform"
-	docaVersion   = "2.9.1"
+	docaRepoName  = "dpf-repository"
+	docaRepoURL   = "https://helm.ngc.nvidia.com/nvidia/doca"
+	docaChart     = "dpf-repository/dpf-operator"
+	docaNamespace = "dpf-operator-system"
+	docaRelease   = "dpf-operator"
+	docaVersion   = "v25.10.1"
 )
 
 // installDOCA deploys the NVIDIA DOCA Platform Framework via its Helm chart.
@@ -22,8 +24,8 @@ const (
 func installDOCA(ctx context.Context, hc *helm.Client, site *config.Site, _ *config.Profile, printer *output.Printer) error {
 	printer.Debugf("installing %s", docaRelease)
 
-	if err := hc.AddRepo(helm.NVIDIARepoName, helm.NVIDIARepoURL); err != nil {
-		return fmt.Errorf("adding nvidia repo for doca: %w", err)
+	if err := hc.AddRepo(docaRepoName, docaRepoURL); err != nil {
+		return fmt.Errorf("adding doca repo: %w", err)
 	}
 
 	var overrides map[string]interface{}

@@ -10,5 +10,3 @@ gfd:
   enabled: true
 migManager:
   enabled: false
-operator:
-  defaultRuntime: containerd
